@@ -1,0 +1,1 @@
+Hit my free download limit using Firebase, so created this database REST API so I could have (essentially) free unlimited storage on an existing server instead.
