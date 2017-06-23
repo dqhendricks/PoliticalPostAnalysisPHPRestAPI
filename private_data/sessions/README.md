@@ -1,0 +1,1 @@
+Folder used for private session files on shared servers. If no file is here, git erases the folder.
