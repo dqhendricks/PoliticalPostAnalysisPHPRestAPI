@@ -30,12 +30,12 @@
 	
 	class App {
 		
-		const ACCESS_TOKEN = 'HjuQoe45nHy78z45hWWlPq1kWeff902v';
-		
+		protected $access_token;
 		protected $database;
 		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process' );
 		
 		public function run() {
+			$this->access_token = file_get_contents( '../private_data/api_key.txt' );
 			if ( $this->hasAccess() ) {
 				$request = explode( '/', $_GET['r'] );
 				$this->processRequest( $request[0], $request[1] );
@@ -43,7 +43,7 @@
 		}
 		
 		private function hasAccess() {
-			return ( $_SERVER['REQUEST_METHOD'] === 'GET' || $_GET['token'] === ACCESS_TOKEN );
+			return ( $_SERVER['REQUEST_METHOD'] === 'GET' || $_GET['token'] === $this->access_token );
 		}
 		
 		private function processRequest( $action, $id ) {
