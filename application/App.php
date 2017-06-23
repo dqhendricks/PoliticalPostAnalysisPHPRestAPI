@@ -35,7 +35,7 @@
 		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process' );
 		
 		public function run() {
-			$this->access_token = file_get_contents( '../private_data/api_key.txt' );
+			$this->access_token = file_get_contents( '../private_data/api_key.txt' ); // txt file contains API key. hidden from git
 			if ( $this->hasAccess() ) {
 				$request = explode( '/', $_GET['r'] );
 				$this->processRequest( $request[0], $request[1] );
