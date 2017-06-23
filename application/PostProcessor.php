@@ -32,8 +32,11 @@
 		}
 		
 		private function updateMetaData() {
-			$query = 'UPDATE meta_data SET earliestPostTime = ?, latestPostTime = ?';
-			$variables = array( $_GET['earliestPostCullDate'], $_GET['latestPostDate'] );
+			$query = 'UPDATE meta_data SET value = ? WHERE key = "earliestPostTime"';
+			$variables = array( $_GET['earliestPostCullDate'] );
+			$this->database->queryPrepared( $query, $variables );
+			$query = 'UPDATE meta_data SET value = ? WHERE key = "latestPostTime"';
+			$variables = array( $_GET['latestPostDate'] );
 			$this->database->queryPrepared( $query, $variables );
 		}
 	}
