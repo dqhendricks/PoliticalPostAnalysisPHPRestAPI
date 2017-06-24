@@ -39,5 +39,15 @@
 			$stmt = $this->queryPrepared( $query, $variables );
 			return $stmt->fetchColumn( $column );
 		}
+		
+		public function fetchRow( $query ) {
+			$stmt = $this->query( $query );
+			return $stmt->fetch();
+		}
+		
+		public function fetchColumn( $query, $column = 0 ) {
+			$stmt = $this->query( $query );
+			return $stmt->fetchColumn( $column );
+		}
 	}
 ?>
