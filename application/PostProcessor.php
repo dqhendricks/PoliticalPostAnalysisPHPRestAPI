@@ -68,6 +68,7 @@
 			foreach( $stmt as $post ) {
 				if ( $post->total_reactions != 0 ) {
 					$this->updateTotalReactions( 'posts', $post, $post->post_id );
+					$this->updateControversialityScore( 'posts', $post, $post->post_id );
 				}
 			}
 			// comment data
@@ -145,6 +146,7 @@
 			$stmt = $this->getTotalReactionsBy( 'page_id' );
 			foreach( $stmt as $page ) {
 				$this->updateTotalReactions( 'pages', $page, $page->page_id );
+				$this->updateControversialityScore( 'pages', $page, $page->page_id );
 			}
 			// comment data
 			$stmt = $this->getTotalCommentsBy( 'page_id' );
@@ -186,6 +188,21 @@
 				.', highest_reaction_type = '.$highestReactionType
 				.' WHERE id = '.$id;
 			$this->database->query( $query );
+		}
+		
+		private function updateControversialityScore( $table, $totals_record, $id ) {
+			// basically, the closer the total positive and total negative reactions are to each other, the more controversial
+			$total_positive_reactions = $totals_record->total_love_reactions + $totals_record->total_haha_reactions;
+			$total_negative_reactions = $totals_record->total_sad_reactions + $totals_record->total_angry_reactions;
+			if ( $total_positive_reactions != 0 && $total_negative_reactions != 0 ) {
+				if ( $total_positive_reactions > $total_negative_reactions ) {
+					$controversiality_score = $total_negative_reactions / $total_positive_reactions;
+				} else {
+					$controversiality_score = $total_positive_reactions / $total_negative_reactions;
+				}
+				$query = "UPDATE $table SET controversiality_score = $controversiality_score WHERE id = $id";
+				$this->database->query( $query );
+			}
 		}
 		
 		private function getHighestReactionType( $totals_record ) {
