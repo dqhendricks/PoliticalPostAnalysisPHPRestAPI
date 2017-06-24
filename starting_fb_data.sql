@@ -3,7 +3,7 @@
 -- http://www.phpmyadmin.net
 --
 -- Host: localhost:3306
--- Generation Time: Jun 24, 2017 at 04:00 PM
+-- Generation Time: Jun 24, 2017 at 04:02 PM
 -- Server version: 5.5.50-38.0-log
 -- PHP Version: 5.4.31
 
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `link` varchar(128) NOT NULL,
   `name` varchar(64) NOT NULL,
   `picture` varchar(256) NOT NULL,
-  `affiliation` float NOT NULL,
+  `affiliation` float NOT NULL COMMENT 'from 0 = left to 1 = right',
   `total_reactions` int(11) NOT NULL,
   `total_comments` int(11) NOT NULL,
   `total_comment_likes` int(11) NOT NULL,
