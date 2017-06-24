@@ -91,7 +91,7 @@
 				$variables[] = $id;
 				$response->data = $this->decodeDatabaseJSON( $this->database->fetchRowPrepared( $query, $variables ) );
 			} else {
-				$response->data = new stdClass();
+				$response->data = array();
 				$query .= $this->generateWhereQuerySegment().$this->generateOrderQuerySegment().$this->generateLimitQuerySegment();
 				$variables = $this->addLimitQueryVariables( $this->addWhereQueryVariables( $variables ) );
 				$stmt = $this->database->queryPrepared( $query, $variables );
