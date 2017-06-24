@@ -211,6 +211,7 @@
 			$query = 'SELECT '.$field
 				.', COUNT( id ) AS total_comments'
 				.', SUM( like_count ) AS total_comment_likes'
+				.', SUM( CASE WHEN like_count = 0 THEN 1 ELSE 0 END ) AS total_comments_zero_likes'
 				.' FROM comments'
 				.' WHERE 1'
 				.' GROUP BY '.$field;
@@ -221,6 +222,7 @@
 			$query = 'UPDATE '.$table
 				.' SET total_comments = '.$totals_record->total_comments
 				.', total_comment_likes = '.$totals_record->total_comment_likes
+				.', total_comments_zero_likes = '.$totals_record->total_comments_zero_likes
 				.' WHERE id = '.$id;
 			$this->database->query( $query );
 		}

@@ -3,7 +3,7 @@
 -- http://www.phpmyadmin.net
 --
 -- Host: localhost:3306
--- Generation Time: Jun 23, 2017 at 06:44 PM
+-- Generation Time: Jun 24, 2017 at 03:55 PM
 -- Server version: 5.5.50-38.0-log
 -- PHP Version: 5.4.31
 
@@ -38,8 +38,12 @@ CREATE TABLE IF NOT EXISTS `comments` (
   `user_id` int(12) NOT NULL,
   `post_id` varchar(64) NOT NULL,
   `page_id` int(12) NOT NULL,
+  `created_time_mysql` datetime NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `created_time` (`created_time`,`user_id`,`post_id`,`page_id`)
+  KEY `created_time` (`created_time`),
+  KEY `user_id` (`user_id`),
+  KEY `post_id` (`post_id`),
+  KEY `page_id` (`page_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- --------------------------------------------------------
@@ -83,6 +87,14 @@ CREATE TABLE IF NOT EXISTS `pages` (
   `total_posts` int(11) NOT NULL,
   `total_comments` int(11) NOT NULL,
   `total_reactions` int(11) NOT NULL,
+  `highest_reaction_type` varchar(16) NOT NULL,
+  `total_comment_likes` int(11) NOT NULL,
+  `total_love_reactions` int(11) NOT NULL,
+  `total_wow_reactions` int(11) NOT NULL,
+  `total_haha_reactions` int(11) NOT NULL,
+  `total_sad_reactions` int(11) NOT NULL,
+  `total_angry_reactions` int(11) NOT NULL,
+  `total_comments_zero_likes` int(11) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -90,11 +102,11 @@ CREATE TABLE IF NOT EXISTS `pages` (
 -- Dumping data for table `pages`
 --
 
-INSERT INTO `pages` (`id`, `about`, `affiliation`, `category`, `fan_count`, `link`, `name`, `picture`, `website`, `total_posts`, `total_comments`, `total_reactions`) VALUES
-(5281959998, '', 0, '', 0, '', '', '', '', 0, 0, 0),
-(5550296508, '', 0, '', 0, '', '', '', '', 0, 0, 0),
-(15704546335, '', 0, '', 0, '', '', '', '', 0, 0, 0),
-(95475020353, '', 0, '', 0, '', '', '', '', 0, 0, 0);
+INSERT INTO `pages` (`id`, `about`, `affiliation`, `category`, `fan_count`, `link`, `name`, `picture`, `website`, `total_posts`, `total_comments`, `total_reactions`, `highest_reaction_type`, `total_comment_likes`, `total_love_reactions`, `total_wow_reactions`, `total_haha_reactions`, `total_sad_reactions`, `total_angry_reactions`, `total_comments_zero_likes`) VALUES
+(5281959998, 'Welcome to The New York Times on Facebook - a hub for conversation about news and ideas. Like our page and connect with Times journalists and readers. ', 0, 'Newspaper', 14130659, 'https://www.facebook.com/nytimes/', 'The New York Times', '{"data":{"is_silhouette":false,"url":"https:\\/\\/scontent.xx.fbcdn.net\\/v\\/t1.0-1\\/p50x50\\/420194_448960124998_2006714158_n.jpg?o', 'nytimes.com/chat', 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0),
+(5550296508, 'Instant breaking news alerts and the most talked about stories.', 0, 'Media/News Company', 27690501, 'https://www.facebook.com/cnn/', 'CNN', '{"data":{"is_silhouette":false,"url":"https:\\/\\/scontent.xx.fbcdn.net\\/v\\/t1.0-1\\/p50x50\\/12289622_10154246192721509_18979125835', 'www.cnn.com', 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0),
+(15704546335, 'Welcome to the official Fox News facebook page.  Get breaking news, must see videos and exclusive interviews from the #1 name in news.', 0, 'Media/News Company', 15472767, 'https://www.facebook.com/FoxNews/', 'Fox News', '{"data":{"is_silhouette":false,"url":"https:\\/\\/scontent.xx.fbcdn.net\\/v\\/t1.0-1\\/p50x50\\/417751_10150581617531336_1949382366_n.', 'http://foxnews.com/, http://insider.foxnews.com', 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0),
+(95475020353, 'Breitbart News (www.breitbart.com) is a conservative news and opinion website founded by the late Andrew Breitbart.', 0, 'Media/News Company', 3463146, 'https://www.facebook.com/Breitbart/', 'Breitbart', '{"data":{"is_silhouette":false,"url":"https:\\/\\/scontent.xx.fbcdn.net\\/v\\/t1.0-1\\/p50x50\\/227458_10152346853555354_25751187_n.jp', 'http://www.breitbart.com', 0, 0, 0, '', 0, 0, 0, 0, 0, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -113,10 +125,18 @@ CREATE TABLE IF NOT EXISTS `posts` (
   `permalink_url` varchar(128) NOT NULL,
   `picture` varchar(256) NOT NULL,
   `shares` int(11) NOT NULL,
-  `reaction_type` varchar(16) NOT NULL,
+  `highest_reaction_type` varchar(16) NOT NULL,
   `last_allowed_comment_time` varchar(24) NOT NULL,
   `total_comments` int(11) NOT NULL,
   `total_reactions` int(11) NOT NULL,
+  `created_time_mysql` datetime NOT NULL,
+  `total_love_reactions` int(11) NOT NULL,
+  `total_wow_reactions` int(11) NOT NULL,
+  `total_haha_reactions` int(11) NOT NULL,
+  `total_sad_reactions` int(11) NOT NULL,
+  `total_angry_reactions` int(11) NOT NULL,
+  `total_comment_likes` int(11) NOT NULL,
+  `total_comments_zero_likes` int(11) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `created_time` (`created_time`,`page_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -132,12 +152,15 @@ CREATE TABLE IF NOT EXISTS `post_reactions` (
   `link` int(11) NOT NULL,
   `name` int(11) NOT NULL,
   `picture` int(11) NOT NULL,
-  `type` int(11) NOT NULL,
+  `type` varchar(16) NOT NULL,
   `user_id` bigint(20) NOT NULL,
   `post_id` varchar(64) NOT NULL,
   `page_id` bigint(20) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `user_id` (`user_id`,`post_id`,`page_id`)
+  KEY `type` (`type`),
+  KEY `user_id` (`user_id`),
+  KEY `post_id` (`post_id`),
+  KEY `page_id` (`page_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- --------------------------------------------------------
@@ -156,6 +179,15 @@ CREATE TABLE IF NOT EXISTS `users` (
   `total_comments` int(11) NOT NULL,
   `total_comment_likes` int(11) NOT NULL,
   `total_pages_interacted_with` int(11) NOT NULL,
+  `highest_reaction_type` varchar(16) NOT NULL,
+  `total_love_reactions` int(11) NOT NULL,
+  `total_wow_reactions` int(11) NOT NULL,
+  `total_haha_reactions` int(11) NOT NULL,
+  `total_sad_reactions` int(11) NOT NULL,
+  `total_angry_reactions` int(11) NOT NULL,
+  `pages_interacted_with` varchar(256) NOT NULL,
+  `total_posts_interacted_with` int(11) NOT NULL,
+  `total_comments_zero_likes` int(11) NOT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
