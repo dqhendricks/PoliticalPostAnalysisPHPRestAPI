@@ -10,7 +10,7 @@
 			
 		GET - choosing fields to return
 			$_GET['fields'] (comma separated field list) default '*'
-			$_GET['count'] (true/empty, true returns query row count as 'response.total' but no other fields)
+			$_GET['count'] (true/empty, true returns query row count as 'total' but no other fields)
 			
 		GET, POST, DELETE - conditional operations
 			$_GET['where_field'] (field name)
