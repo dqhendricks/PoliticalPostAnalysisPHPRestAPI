@@ -90,6 +90,7 @@
 			$stmt = $this->getTotalCommentsBy( 'user_id' );
 			foreach( $stmt as $user ) {
 				$this->updateTotalComments( 'users', $user, $user->user_id );
+				$this->updateAverageTimeToComment( $user->user_id );
 			}
 			// affiliation data
 			$query = 'SELECT post_reactions.user_id'
@@ -225,13 +226,15 @@
 		}
 		
 		private function getTotalCommentsBy( $field ) {
-			$query = 'SELECT '.$field
-				.', COUNT( id ) AS total_comments'
-				.', SUM( like_count ) AS total_comment_likes'
-				.', SUM( CASE WHEN like_count = 0 THEN 1 ELSE 0 END ) AS total_comments_zero_likes'
+			$query = 'SELECT comments.'.$field
+				.', COUNT( comments.id ) AS total_comments'
+				.', SUM( comments.like_count ) AS total_comment_likes'
+				.', SUM( CASE WHEN comments.like_count = 0 THEN 1 ELSE 0 END ) AS total_comments_zero_likes'
+				.', AVG( TIME_TO_SEC( TIMEDIFF( comments.created_time_mysql, posts.created_time_mysql ) ) / ( 60 * 60 ) ) AS average_hours_to_comment'
 				.' FROM comments'
+				.' LEFT JOIN posts ON posts.id = comments.post_id'
 				.' WHERE 1'
-				.' GROUP BY '.$field;
+				.' GROUP BY comments.'.$field;
 			return $this->database->query( $query );
 		}
 		
@@ -240,6 +243,7 @@
 				.' SET total_comments = '.$totals_record->total_comments
 				.', total_comment_likes = '.$totals_record->total_comment_likes
 				.', total_comments_zero_likes = '.$totals_record->total_comments_zero_likes
+				.', average_hours_to_comment = '.$totals_record->average_hours_to_comment
 				.' WHERE id = '.$id;
 			$this->database->query( $query );
 		}
