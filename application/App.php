@@ -4,12 +4,13 @@
 		requests come in via $_GET['r'] in format 'action/{ id }'
 		
 		$_GET['token'] is required for write operations
-		a POST request with action 'process' will begin post scrape data processor
+		a POST request with action 'process' will begin after scrape data processor
 		
 		options
 			
 		GET - choosing fields to return
 			$_GET['fields'] (comma separated field list) default '*'
+			$_GET['count'] (true/empty, true returns query row count as 'response.total' but no other fields)
 			
 		GET, POST, DELETE - conditional operations
 			$_GET['where_field'] (field name)
@@ -24,8 +25,8 @@
 			$_GET['row_count'] (number of rows)
 			$_GET['offset'] (start row) default 0
 			
-		PUT, POST - record data
-			$_GET['data'] (JSON string)
+		POST - record data
+			$_POST['data'] (JSON string)
 	*/
 	
 	class App {
@@ -58,7 +59,7 @@
 						$response = $this->getRequest( $action, $id, $response );
 						break;
 					case 'POST':
-						if ( $action == 'process' ) { // special POST action to begin post processing
+						if ( $action == 'process' ) { // special POST action to begin after scrape processing
 							$postProcessor = new PostProcessor( $this->database );
 							$response = $postProcessor->process( $response );
 						} else {
@@ -144,9 +145,11 @@
 		}
 		
 		private function generateFieldsList() {
-			if ( $_GET['fields'] ) {
+			if ( $_GET['count'] ) {
+				return 'COUNT( * ) AS total';
+			} else if ( $_GET['fields'] ) {
 				$fields = explode( ',', $_GET['fields'] );
-				if ( !in_array( 'id', $fields ) ) $fields[] = 'id';
+				if ( !in_array( 'id', $fields ) ) $fields[] = 'id'; // always add id
 				return implode( ', ', array_map( function( $input ) {
 					return $this->sanitizeField( $input );
 				}, $fields ) );
