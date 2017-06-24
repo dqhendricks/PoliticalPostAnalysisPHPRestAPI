@@ -19,8 +19,8 @@
 		}
 		
 		public function queryPrepared( $query, $variables = array() ) {
-			$stmt = $this->prepare( $query );
 			try {
+				$stmt = $this->prepare( $query );
 				$stmt->execute( $variables );
 				return $stmt;
 			} catch ( Exception $exception ) {

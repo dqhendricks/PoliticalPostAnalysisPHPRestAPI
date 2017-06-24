@@ -57,9 +57,6 @@
 					case 'GET':
 						$response = $this->getRequest( $action, $id, $response );
 						break;
-					case 'PUT':
-						$response = $this->putRequest( $action, $response );
-						break;
 					case 'POST':
 						if ( $action == 'process' ) { // special POST action to begin post processing
 							$postProcessor = new PostProcessor( $this->database );
@@ -70,6 +67,9 @@
 						break;
 					case 'DELETE':
 						$response = $this->deleteRequest( $action, $id, $response );
+						break;
+					default:
+						$response->error = 'Error: This method is not supported.';
 						break;
 				}
 			}
@@ -101,34 +101,19 @@
 			return $response;
 		}
 		
-		private function putRequest( $action, $response ) {
-			$variables = array();
-			$data = $this->getRecordData();
-			
-			$query = $this->generatePutQuery( $action, $data );
-			$variables = $this->generatePutVariables( $data, $variables );
-			$this->database->queryPrepared( $query, $variables );
-			$response->id = ( ( $action->id ) ? $action->id : PDO::lastInsertId() );
-			
-			return $response;
-		}
-		
 		private function postRequest( $action, $id, $response ) {
-			$query = "UPDATE $action SET";
 			$variables = array();
 			$data = $this->getRecordData();
-			$query .= $this->generatePostQuerySegment( $data );
-			$variables = $this->generatePostVariables( $data, $variables );
+			$query = $this->generatePostQuery( $action, $id, $data );
+			$variables = $this->generatePostVariables( $data, $id, $variables );
 			
-			if ( $id ) {
-				$query .= $this->generateDefaultIDQuerySegment();
-				$variables[] = $id;
-			} else {
+			if ( !$id ) {
 				$query .= $this->generateWhereQuerySegment();
 				$variables = $this->addWhereQueryVariables( $variables );
 			}
 			$stmt = $this->database->queryPrepared( $query, $variables );
 			$response->rowCount = $stmt->rowCount();
+			if ( $repsonse->rowCount == 1 ) $response->id = ( ( $action->id ) ? $action->id : PDO::lastInsertId() );
 			
 			return $response;
 		}
@@ -150,7 +135,7 @@
 			return $response;
 		}
 		
-		private function sanitizeField( $input ) {
+		public function sanitizeField( $input ) {
 			return '`'.trim( str_replace( '`', '', $input ) ).'`';
 		}
 		
@@ -239,41 +224,51 @@
 		}
 		
 		private function getRecordData() {
-			return json_decode( $_GET['data'] );
+			$data = json_decode( $_REQUEST['data'] );
+			if ( !$data ) {
+				echo $_REQUEST['data'];
+				echo '@@@';
+			}
+			return $data;
 		}
 		
-		private function generatePutQuery( $action, $data ) {
-			$query = "INSERT INTO $action (";
-			$query .= implode( ', ', array_map( function( $input ) {
-				return $this->sanitizeField( $input );
-			}, array_keys( $data ) ) );
-			$query .= ') VALUES(';
-			$query .= implode( ', ', array_fill( 0, count( $data ), '?' ) );
-			$query .= ') ON DUPLICATE KEY UPDATE ';
+		private function generatePostQuery( $action, $id, $data ) {
+			if ( $id ) {
+				$query = "INSERT INTO $action (";
+				$thisRef = $this;
+				$query .= implode( ', ', array_map( function ( $input ) use ( $thisRef ) {
+					return $thisRef->sanitizeField( $input );
+				}, array_keys( ( array )$data ) ) );
+				$query .= ') VALUES (';
+				$query .= implode( ', ', array_fill( 0, count( ( array )$data ), '?' ) );
+				$query .= ') ON DUPLICATE KEY UPDATE ';
+			} else {
+				$query = "UPDATE $action SET ";
+			}
 			$query .= $this->generatePostQuerySegment( $data );
 			return $query;
 		}
 		
-		private function generatePutVariables( $data, $variables ) {
-			$variables = $this->generatePostVariables( $data, $variables );
-			$variables = $this->generatePostVariables( $data, $variables );
-			return $variables;
-		}
-		
-		private function generatePostQuerySegment( $data ) {
-			$query = '';
-			foreach( $data as $field => $value ) {
-				$query .= ' '.$this->sanitizeField( $field ).' = ?';
-			}
-			return $query;
-		}
-		
-		private function generatePostVariables( $data, $variables ) {
+		private function generatePostVariables( $data, $id, $variables ) {
 			foreach( $data as $value ) {
 				if ( is_object( $value ) ) $value = json_encode( $value );
 				$variables[] = $value;
 			}
+			if ( $id ) {
+				foreach( $data as $value ) {
+					if ( is_object( $value ) ) $value = json_encode( $value );
+					$variables[] = $value;
+				}
+			}
 			return $variables;
+		}
+		
+		private function generatePostQuerySegment( $data ) {
+			$query = array();
+			foreach( $data as $field => $value ) {
+				$query[] = $this->sanitizeField( $field ).' = ?';
+			}
+			return implode( ', ', $query );
 		}
 		
 		private function decodeDatabaseJSON( $record ) {
