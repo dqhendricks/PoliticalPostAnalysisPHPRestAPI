@@ -9,6 +9,7 @@
 		}
 		
 		public function process( $response ) {
+			set_time_limit( 0 );
 			$this->deleteOldRecords();
 			$this->updateMissingUsers();
 			$this->updateMetaData();
