@@ -10,6 +10,7 @@
 		
 		public function process( $response ) {
 			$this->deleteOldRecords();
+			$this->updateMissingUsers();
 			$this->updateMetaData();
 			$this->updatePostMetaData();
 			$this->updateUserMetaData();
@@ -53,6 +54,20 @@
 			}
 		}
 		
+		private function updateMissingUsers() {
+			// some users cannot be scraped
+			$missing_users_count = 0;
+			$query = 'SELECT comments.from FROM comments LEFT JOIN users ON users.id = comments.user_id WHERE users.is IS NULL';
+			$stmt = $this->database->query( $query );
+			foreach( $stmt as $comment ) {
+				$user = json_decode( $comment->from );
+				$query = 'INSERT INTO users ( id, name, link )'
+					.' VALUES ( '.$user->id.', "'.$user->name.'", "https://www.facebook.com/app_scoped_user_id/'.$user->id.'/" )'
+					.' ON DUPLICATE KEY UPDATE id = id';
+				$this->database->query( $query );
+			}
+		}
+		
 		private function updateMetaData() {
 			$query = 'UPDATE meta_data SET value = ? WHERE key = "earliestPostTime"';
 			$variables = array( $_GET['earliestPostCullDate'] );
@@ -90,7 +105,7 @@
 			$stmt = $this->getTotalCommentsBy( 'user_id' );
 			foreach( $stmt as $user ) {
 				$this->updateTotalComments( 'users', $user, $user->user_id );
-				$this->updateAverageTimeToComment( $user->user_id );
+				$this->updateDuplicateCommentCount( $user->user_id );
 			}
 			// affiliation data
 			$query = 'SELECT post_reactions.user_id'
@@ -177,24 +192,24 @@
 			return $this->database->query( $query );
 		}
 		
-		private function updateTotalReactions( $table, $totals_record, $id ) {
-			$highestReactionType = $this->getHighestReactionType( $totals_record );
+		private function updateTotalReactions( $table, $totalsRecord, $id ) {
+			$highestReactionType = $this->getHighestReactionType( $totalsRecord );
 			$query = 'UPDATE '.$table
-				.' SET total_reactions = '.$totals_record->total_reactions
-				.', total_love_reactions = '.$totals_record->total_love_reactions
-				.', total_wow_reactions = '.$totals_record->total_wow_reactions
-				.', total_haha_reactions = '.$totals_record->total_haha_reactions
-				.', total_sad_reactions = '.$totals_record->total_sad_reactions
-				.', total_angry_reactions = '.$totals_record->total_angry_reactions
+				.' SET total_reactions = '.$totalsRecord->total_reactions
+				.', total_love_reactions = '.$totalsRecord->total_love_reactions
+				.', total_wow_reactions = '.$totalsRecord->total_wow_reactions
+				.', total_haha_reactions = '.$totalsRecord->total_haha_reactions
+				.', total_sad_reactions = '.$totalsRecord->total_sad_reactions
+				.', total_angry_reactions = '.$totalsRecord->total_angry_reactions
 				.', highest_reaction_type = '.$highestReactionType
 				.' WHERE id = '.$id;
 			$this->database->query( $query );
 		}
 		
-		private function updateControversialityScore( $table, $totals_record, $id ) {
+		private function updateControversialityScore( $table, $totalsRecord, $id ) {
 			// basically, the closer the total positive and total negative reactions are to each other, the more controversial
-			$total_positive_reactions = $totals_record->total_love_reactions + $totals_record->total_haha_reactions;
-			$total_negative_reactions = $totals_record->total_sad_reactions + $totals_record->total_angry_reactions;
+			$total_positive_reactions = $totalsRecord->total_love_reactions + $totalsRecord->total_haha_reactions;
+			$total_negative_reactions = $totalsRecord->total_sad_reactions + $totalsRecord->total_angry_reactions;
 			if ( $total_positive_reactions != 0 && $total_negative_reactions != 0 ) {
 				if ( $total_positive_reactions > $total_negative_reactions ) {
 					$controversiality_score = $total_negative_reactions / $total_positive_reactions;
@@ -206,23 +221,23 @@
 			}
 		}
 		
-		private function getHighestReactionType( $totals_record ) {
-			$totals_record = (array)$totals_record;
-			$reaction_types = array(
+		private function getHighestReactionType( $totalsRecord ) {
+			$totalsRecord = (array)$totalsRecord;
+			$reactionTypes = array(
 				'LOVE' => 'total_love_reactions',
 				'WOW' => 'total_wow_reactions',
 				'HAHA' => 'total_haha_reactions',
 				'SAD' => 'total_sad_reactions',
 				'ANGRY' => 'total_angry_reactions'
 			);
-			$highest_type = array( 'type' => '', 'total' => 0 );
-			foreach( $reaction_types as $type => $field ) {
-				if ( $totals_record[$field] > $highest_type['total'] ) {
-					$highest_type['type'] = $type;
-					$highest_type['total'] = $totals_record[$field];
+			$highestType = array( 'type' => '', 'total' => 0 );
+			foreach( $reactionTypes as $type => $field ) {
+				if ( $totalsRecord[$field] > $highestType['total'] ) {
+					$highestType['type'] = $type;
+					$highestType['total'] = $totalsRecord[$field];
 				}
 			}
-			return $highest_type['type'];
+			return $highestType['type'];
 		}
 		
 		private function getTotalCommentsBy( $field ) {
@@ -238,13 +253,24 @@
 			return $this->database->query( $query );
 		}
 		
-		private function updateTotalComments( $table, $totals_record, $id ) {
+		private function updateTotalComments( $table, $totalsRecord, $id ) {
 			$query = 'UPDATE '.$table
-				.' SET total_comments = '.$totals_record->total_comments
-				.', total_comment_likes = '.$totals_record->total_comment_likes
-				.', total_comments_zero_likes = '.$totals_record->total_comments_zero_likes
-				.', average_hours_to_comment = '.$totals_record->average_hours_to_comment
+				.' SET total_comments = '.$totalsRecord->total_comments
+				.', total_comment_likes = '.$totalsRecord->total_comment_likes
+				.', total_comments_zero_likes = '.$totalsRecord->total_comments_zero_likes
+				.', average_hours_to_comment = '.$totalsRecord->average_hours_to_comment
 				.' WHERE id = '.$id;
+			$this->database->query( $query );
+		}
+		
+		private function updateDuplicateCommentCount( $user_id ) {
+			$query = "SELECT message, ( COUNT(*) - 1 ) AS duplicates FROM comments GROUP BY message WHERE user_id = $user_id HAVING duplicates > 0";
+			$stmt = $this->database->query( $query );
+			$duplicate_comment_count = 0;
+			foreach( $stmt as $comment ) {
+				$duplicate_comment_count += $comment->duplicates;
+			}
+			$query = "UPDATE users SET duplicate_comment_count = $duplicate_comment_count WHERE id = $user_id";
 			$this->database->query( $query );
 		}
 	}

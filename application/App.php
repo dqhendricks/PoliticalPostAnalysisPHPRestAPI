@@ -31,12 +31,12 @@
 	
 	class App {
 		
-		protected $access_token;
+		protected $accessToken;
 		protected $database;
 		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process' );
 		
 		public function run() {
-			$this->access_token = file_get_contents( '../private_data/api_key.txt' ); // txt file contains API key. hidden from git
+			$this->accessToken = file_get_contents( '../private_data/api_key.txt' ); // txt file contains API key. hidden from git
 			if ( $this->hasAccess() ) {
 				$request = explode( '/', $_GET['r'] );
 				$this->processRequest( $request[0], $request[1] );
@@ -44,14 +44,14 @@
 		}
 		
 		private function hasAccess() {
-			return ( $_SERVER['REQUEST_METHOD'] === 'GET' || $_GET['token'] === $this->access_token );
+			return ( $_SERVER['REQUEST_METHOD'] === 'GET' || $_GET['token'] === $this->accessToken );
 		}
 		
 		private function processRequest( $action, $id ) {
 			$response = new stdClass();
 			
 			if ( !$this->actionExists( $action ) ) {
-				$response->error = 'Error: This action does not exist.';
+				$response->error = "Error: This action does not exist (action: $action, id: $id).";
 			} else {
 				$this->database = new Database();
 				switch( $_SERVER['REQUEST_METHOD'] ) {
@@ -228,10 +228,6 @@
 		
 		private function getRecordData() {
 			$data = json_decode( $_REQUEST['data'] );
-			if ( !$data ) {
-				echo $_REQUEST['data'];
-				echo '@@@';
-			}
 			return $data;
 		}
 		
