@@ -3,9 +3,12 @@
 	class PostProcessor {
 		
 		protected $database;
+		protected $meta_data_query_stmt;
 		
 		public function __construct( $database ) {
 			$this->database = $database;
+			$query = 'INSERT INTO meta_data ( key, value, name, description ) VALUES ( ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE value = ?, name = ?, description = ?';
+			$this->meta_data_query_stmt = $this->database->prepare( $query );
 		}
 		
 		public function process( $response ) {
@@ -19,6 +22,11 @@
 			
 			$response->success = true;
 			return $response;
+		}
+		
+		private function setMetaData( $key, $value, $name = '', $description = '' ) {
+			$variables = array( $key, $value, $name, $description, $value, $name, $description );
+			return $stmt->execute( $variables );
 		}
 		
 		private function deleteOldRecords() {
@@ -270,85 +278,68 @@
 		}
 		
 		private function updateMetaData() {
-			$query = 'UPDATE meta_data SET value = ?, name = ?, description = ? WHERE key = ?';
-			$stmt = $this->database->prepare( $query );
 			
 			/* time range */
-			$variables = array( $_GET['earliestPostCullDate'], 'earliestPostTime', 'Earliest Post Time', 'Posts used in the analysis will have been published no earlier than this date.' );
-			$stmt->execute( $variables );
-			$variables = array( $_GET['latestPostDate'], 'latestPostTime', 'Latest Post Time', 'Posts used in the analysis will have been published no later than this date.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'earliestPostTime', $_GET['earliestPostCullDate'], 'Earliest Post Time', 'Posts used in the analysis will have been published no earlier than this date.' );
+			$this->setMetaData( 'latestPostTime', $_GET['latestPostDate'], 'Latest Post Time', 'Posts used in the analysis will have been published no later than this date.' );
 			
 			/* CACHING */
 			
 			/* page metadata */
 			// highest fan count
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.fan_count DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'pageHighestFanCount', 'Highest Fan Count', 'This is the page with the highest number of fans.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'pageHighestFanCount', json_encode( $record ), 'Highest Fan Count', 'This is the page with the highest number of fans.' );
 			// most active
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.total_posts DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'pageMostActive', 'Most Active', 'This is the page with the highest number of posts.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'pageMostActive', json_encode( $record ), 'Most Active', 'This is the page with the highest number of posts.' );
 			// most controversial
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.controversiality_score DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'pageMostControversial', 'Most Controversial', 'This is the page with the closest number of positive and negative reactions to their posts.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'pageMostControversial', json_encode( $record ), 'Most Controversial', 'This is the page with the closest number of positive and negative reactions to their posts.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'pages', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$variables = array( json_encode( $record ), 'pageMost'.$ucReaction.'Reactions', "Most $ucReaction Reactions", "This is the page with the highest ratio of $ucReaction reactions per reaction to their posts. Pages with only one reaction are eliminated." );
-				$stmt->execute( $variables );
+				$this->setMetaData( 'pageMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the page with the highest ratio of $ucReaction reactions per reaction to their posts. Pages with only one reaction are eliminated." );
 			}
 			
 			/* post metadata */
 			// most active
 			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.total_comments DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'postMostActive', 'Most Active', 'This is the post with the highest number of comments.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'postMostActive', json_encode( $record ), 'Most Active', 'This is the post with the highest number of comments.' );
 			// most controversial
 			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.controversiality_score DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'postMostControversial', 'Most Controversial', 'This is the post with the closest number of positive and negative reactions.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'postMostControversial', json_encode( $record ), 'Most Controversial', 'This is the post with the closest number of positive and negative reactions.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'posts', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$variables = array( json_encode( $record ), 'postMost'.$ucReaction.'Reactions', "Most $ucReaction Reactions", "This is the post with the highest ratio of $ucReaction reactions per reaction. Posts with only one reaction are eliminated." );
-				$stmt->execute( $variables );
+				$this->setMetaData( 'postMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the post with the highest ratio of $ucReaction reactions per reaction. Posts with only one reaction are eliminated." );
 			}
 			
 			/* user metadata */
 			// most active
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'userMostActive', 'Most Active', 'This is the user with the highest number of comments.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'userMostActive', json_encode( $record ), 'Most Active', 'This is the user with the highest number of comments.' );
 			// most influential
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comment_likes DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'userMostInfluential', 'Most Influential', 'This is the user with highest total of likes on their comments.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'userMostInfluential', json_encode( $record ), 'Most Influential', 'This is the user with highest total of likes on their comments.' );
 			// biggest troll
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments_zero_likes DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'userBiggestTroll', 'Biggest Troll', 'This is the user with the highest number of comments with zero likes.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'userBiggestTroll', json_encode( $record ), 'Biggest Troll', 'This is the user with the highest number of comments with zero likes.' );
 			// biggest spammer
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.duplicate_comment_count DESC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'userBiggestSpammer', 'Biggest Spammer', 'This is the user with the highest number of duplicate comments.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'userBiggestSpammer', json_encode( $record ), 'Biggest Spammer', 'This is the user with the highest number of duplicate comments.' );
 			// quick draw award
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.average_hours_to_comment ASC LIMIT 1' );
-			$variables = array( json_encode( $record ), 'userQuickDrawAward', 'Quick Draw Award', 'This is the user with the lowest average number of hours between the time a post is published, and the time they post a comment on it.' );
-			$stmt->execute( $variables );
+			$this->setMetaData( 'userQuickDrawAward', json_encode( $record ), 'Quick Draw Award', 'This is the user with the lowest average number of hours between the time a post is published, and the time they post a comment on it.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'users', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$variables = array( json_encode( $record ), 'userMost'.$ucReaction.'Reactions', "Most $ucReaction Reactions", "This is the user with the highest ratio of $ucReaction reactions per reaction. Users with only one reaction are eliminated." );
-				$stmt->execute( $variables );
+				$this->setMetaData( 'userMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the user with the highest ratio of $ucReaction reactions per reaction. Users with only one reaction are eliminated." );
 			}
 		}
 		
