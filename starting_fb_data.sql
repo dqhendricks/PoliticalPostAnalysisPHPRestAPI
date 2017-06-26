@@ -3,7 +3,7 @@
 -- http://www.phpmyadmin.net
 --
 -- Host: localhost:3306
--- Generation Time: Jun 26, 2017 at 02:28 PM
+-- Generation Time: Jun 26, 2017 at 02:53 PM
 -- Server version: 5.5.50-38.0-log
 -- PHP Version: 5.4.31
 
@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS `meta_data` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `key` varchar(32) NOT NULL,
   `value` text NOT NULL,
+  `name` varchar(32) NOT NULL,
+  `description` varchar(128) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `key` (`key`)
 ) ENGINE=InnoDB  DEFAULT CHARSET=utf8 AUTO_INCREMENT=3 ;
@@ -66,9 +68,9 @@ CREATE TABLE IF NOT EXISTS `meta_data` (
 -- Dumping data for table `meta_data`
 --
 
-INSERT INTO `meta_data` (`id`, `key`, `value`) VALUES
-(1, 'earliestPostTime', ''),
-(2, 'latestPostTime', '');
+INSERT INTO `meta_data` (`id`, `key`, `value`, `name`, `description`) VALUES
+(1, 'earliestPostTime', '', '', ''),
+(2, 'latestPostTime', '', '', '');
 
 -- --------------------------------------------------------
 
