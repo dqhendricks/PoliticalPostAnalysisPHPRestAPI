@@ -12,10 +12,10 @@
 			set_time_limit( 0 );
 			$this->deleteOldRecords();
 			$this->updateMissingUsers();
-			$this->updateMetaData();
 			$this->updatePostMetaData();
 			$this->updateUserMetaData();
 			$this->updatePageMetaData();
+			$this->updateMetaData();
 			
 			$response->success = true;
 			return $response;
@@ -67,15 +67,6 @@
 					.' ON DUPLICATE KEY UPDATE id = id';
 				$this->database->query( $query );
 			}
-		}
-		
-		private function updateMetaData() {
-			$query = 'UPDATE meta_data SET value = ? WHERE key = "earliestPostTime"';
-			$variables = array( $_GET['earliestPostCullDate'] );
-			$this->database->queryPrepared( $query, $variables );
-			$query = 'UPDATE meta_data SET value = ? WHERE key = "latestPostTime"';
-			$variables = array( $_GET['latestPostDate'] );
-			$this->database->queryPrepared( $query, $variables );
 		}
 		
 		private function updatePostMetaData() {
@@ -182,6 +173,7 @@
 		private function getTotalReactionsBy( $field ) {
 			$query = 'SELECT '.$field
 				.', COUNT( id ) AS total_reactions'
+				.', SUM( CASE WHEN type = "LIKE" THEN 1 ELSE 0 END ) AS total_like_reactions'
 				.', SUM( CASE WHEN type = "LOVE" THEN 1 ELSE 0 END ) AS total_love_reactions'
 				.', SUM( CASE WHEN type = "WOW" THEN 1 ELSE 0 END ) AS total_wow_reactions'
 				.', SUM( CASE WHEN type = "HAHA" THEN 1 ELSE 0 END ) AS total_haha_reactions'
@@ -197,6 +189,7 @@
 			$highestReactionType = $this->getHighestReactionType( $totalsRecord );
 			$query = 'UPDATE '.$table
 				.' SET total_reactions = '.$totalsRecord->total_reactions
+				.', total_like_reactions = '.$totalsRecord->total_like_reactions
 				.', total_love_reactions = '.$totalsRecord->total_love_reactions
 				.', total_wow_reactions = '.$totalsRecord->total_wow_reactions
 				.', total_haha_reactions = '.$totalsRecord->total_haha_reactions
@@ -225,6 +218,7 @@
 		private function getHighestReactionType( $totalsRecord ) {
 			$totalsRecord = (array)$totalsRecord;
 			$reactionTypes = array(
+				'LIKE' => 'total_like_reactions',
 				'LOVE' => 'total_love_reactions',
 				'WOW' => 'total_wow_reactions',
 				'HAHA' => 'total_haha_reactions',
@@ -273,6 +267,90 @@
 			}
 			$query = "UPDATE users SET duplicate_comment_count = $duplicate_comment_count WHERE id = $user_id";
 			$this->database->query( $query );
+		}
+		
+		private function updateMetaData() {
+			$query = 'UPDATE meta_data SET value = ? WHERE key = ?';
+			$stmt = $this->database->prepare( $query );
+			
+			/* time range */
+			$variables = array( $_GET['earliestPostCullDate'], 'earliestPostTime' );
+			$stmt->execute( $variables );
+			$variables = array( $_GET['latestPostDate'], 'latestPostTime' );
+			$stmt->execute( $variables );
+			
+			/* CACHING */
+			
+			/* page metadata */
+			// highest fan count
+			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.fan_count DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'pageHighestFanCount' );
+			$stmt->execute( $variables );
+			// most active
+			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.total_posts DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'pageMostActive' );
+			$stmt->execute( $variables );
+			// most controversial
+			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.controversiality_score DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'pageMostControversial' );
+			$stmt->execute( $variables );
+			// most ( reaction type / total reactions )
+			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
+			foreach( $reactions as $reaction ) {
+				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'pages', $reaction ) );
+				$variables = array( json_encode( $record ), 'pageMost'.ucfirst( $reaction ) );
+				$stmt->execute( $variables );
+			}
+			
+			/* post metadata */
+			// most active
+			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.total_comments DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'postMostActive' );
+			$stmt->execute( $variables );
+			// most controversial
+			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.controversiality_score DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'postMostControversial' );
+			$stmt->execute( $variables );
+			// most ( reaction type / total reactions )
+			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
+			foreach( $reactions as $reaction ) {
+				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'posts', $reaction ) );
+				$variables = array( json_encode( $record ), 'postMost'.ucfirst( $reaction ) );
+				$stmt->execute( $variables );
+			}
+			
+			/* user metadata */
+			// most active
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'userMostActive' );
+			$stmt->execute( $variables );
+			// most influential
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comment_likes DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'userMostInfluential' );
+			$stmt->execute( $variables );
+			// biggest troll
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments_zero_likes DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'userBiggestTroll' );
+			$stmt->execute( $variables );
+			// biggest spammer
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.duplicate_comment_count DESC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'userBiggestSpammer' );
+			$stmt->execute( $variables );
+			// quick draw award
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.average_hours_to_comment ASC LIMIT 1' );
+			$variables = array( json_encode( $record ), 'userQuickDrawAward' );
+			$stmt->execute( $variables );
+			// most ( reaction type / total reactions )
+			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
+			foreach( $reactions as $reaction ) {
+				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'users', $reaction ) );
+				$variables = array( json_encode( $record ), 'userMost'.ucfirst( $reaction ) );
+				$stmt->execute( $variables );
+			}
+		}
+		
+		private function generateMostReactionTypeQuery( $table, $type ) {
+			return "SELECT $table.* FROM $table WHERE 1 ORDER BY ( CASE WHEN $table.total_reactions <= 1 THEN 0 ELSE ( $table.total_$type_reactions / $table.total_reactions ) END ) DESC, $table.total_reactions DESC LIMIT 1";
 		}
 	}
 ?>

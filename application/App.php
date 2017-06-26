@@ -33,7 +33,7 @@
 		
 		protected $accessToken;
 		protected $database;
-		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process' );
+		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process', 'meta_data' );
 		
 		public function run() {
 			$this->accessToken = file_get_contents( '../private_data/api_key.txt' ); // txt file contains API key. hidden from git
