@@ -51,7 +51,7 @@
 			$response = new stdClass();
 			
 			if ( !$this->actionExists( $action ) ) {
-				$response->error = "Error: This action does not exist (action: $action, id: $id).";
+				$response->error = "Error: This action does not exist (action: {$action}, id: {$id}).";
 			} else {
 				$this->database = new Database();
 				switch( $_SERVER['REQUEST_METHOD'] ) {
@@ -84,7 +84,7 @@
 		
 		private function getRequest( $action, $id, $response ) {
 			$fields = $this->generateFieldsList();
-			$query = "SELECT $fields FROM $action";
+			$query = "SELECT {$fields} FROM {$action}";
 			$variables = array();
 			
 			if ( $id ) {
@@ -120,7 +120,7 @@
 		}
 		
 		private function deleteRequest( $action, $id, $response ) {
-			$query = "DELETE * FROM $action";
+			$query = "DELETE * FROM {$action}";
 			$variables = array();
 			
 			if ( $id ) {
@@ -233,7 +233,7 @@
 		
 		private function generatePostQuery( $action, $id, $data ) {
 			if ( $id ) {
-				$query = "INSERT INTO $action (";
+				$query = "INSERT INTO {$action} (";
 				$thisRef = $this;
 				$query .= implode( ', ', array_map( function ( $input ) use ( $thisRef ) {
 					return $thisRef->sanitizeField( $input );
@@ -242,7 +242,7 @@
 				$query .= implode( ', ', array_fill( 0, count( ( array )$data ), '?' ) );
 				$query .= ') ON DUPLICATE KEY UPDATE ';
 			} else {
-				$query = "UPDATE $action SET ";
+				$query = "UPDATE {$action} SET ";
 			}
 			$query .= $this->generatePostQuerySegment( $data );
 			return $query;

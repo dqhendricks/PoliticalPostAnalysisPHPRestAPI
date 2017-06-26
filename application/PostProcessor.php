@@ -51,13 +51,13 @@
 			foreach( $stmt as $user ) {
 				$query = 'SELECT COUNT( x.id ) AS total_interactions'
 					.' FROM ('
-						.' SELECT post_reactions.id FROM post_reactions WHERE post_reactions.user_id = '.$user->id
-						.' UNION SELECT comments.id FROM comments WHERE comments.user_id = '.$user->id
+						." SELECT post_reactions.id FROM post_reactions WHERE post_reactions.user_id = {$user->id}"
+						." UNION SELECT comments.id FROM comments WHERE comments.user_id = {$user->id}"
 					.' ) AS x'
 					.' WHERE 1';
 				$record = $this->database->fetchRow( $query );
 				if ( $record->total_interactions == 0 ) {
-					$query = 'DELETE FROM users WHERE id = '.$user->id;
+					$query = "DELETE FROM users WHERE id = {$user->id}";
 					$this->database->query( $query );
 				}
 			}
@@ -71,7 +71,7 @@
 			foreach( $stmt as $comment ) {
 				$user = json_decode( $comment->from );
 				$query = 'INSERT INTO users ( id, name, link )'
-					.' VALUES ( '.$user->id.', "'.$user->name.'", "https://www.facebook.com/app_scoped_user_id/'.$user->id.'/" )'
+					." VALUES ( {$user->id}, '{$user->name}', 'https://www.facebook.com/app_scoped_user_id/{$user->id}/' )"
 					.' ON DUPLICATE KEY UPDATE id = id';
 				$this->database->query( $query );
 			}
@@ -118,7 +118,7 @@
 			$stmt = $this->database->query( $query );
 			foreach( $stmt as $user ) {
 				$affiliation = $user->affiliation_total / $user->total_likes;
-				$query = 'UPDATE users SET affiliation = '.$affiliation.' WHERE users.id = '.$user->user_id;
+				$query = "UPDATE users SET affiliation = {$affiliation} WHERE users.id = {$user->user_id}";
 				$this->database->query( $query );
 			}
 			// pages interacted with data
@@ -134,9 +134,9 @@
 			$stmt = $this->database->query( $query );
 			foreach( $stmt as $user ) {
 				$query = 'UPDATE users'
-					.' SET pages_interacted_with = "'.$user->pages_interacted_with.'"'
-					.', total_pages_interacted_with = '.$user->total_pages_interacted_with
-					.' WHERE id = '.$user->user_id;
+					." SET pages_interacted_with = '{$user->pages_interacted_with}'"
+					.", total_pages_interacted_with = {$user->total_pages_interacted_with}"
+					." WHERE id = {$user->user_id}";
 				$this->database->query( $query );
 			}
 			// posts interacted with data
@@ -151,8 +151,8 @@
 			$stmt = $this->database->query( $query );
 			foreach( $stmt as $user ) {
 				$query = 'UPDATE users'
-					.' SET total_posts_interacted_with = '.$user->total_posts_interacted_with
-					.' WHERE id = '.$user->user_id;
+					." SET total_posts_interacted_with = {$user->total_posts_interacted_with}"
+					." WHERE id = {$user->user_id}";
 				$this->database->query( $query );
 			}
 		}
@@ -173,13 +173,13 @@
 			$query = 'SELECT page_id, COUNT( id ) AS total_posts FROM posts WHERE 1 GROUP BY page_id';
 			$stmt = $this->database->query( $query );
 			foreach( $stmt as $page ) {
-				$query = 'UPDATE pages SET total_posts = '.$page->total_posts.' WHERE id = '.$page->page_id;
+				$query = "UPDATE pages SET total_posts = {$page->total_posts} WHERE id = {$page->page_id}";
 				$this->database->query( $query );
 			}
 		}
 		
 		private function getTotalReactionsBy( $field ) {
-			$query = 'SELECT '.$field
+			$query = "SELECT {$field}"
 				.', COUNT( id ) AS total_reactions'
 				.', SUM( CASE WHEN type = "LIKE" THEN 1 ELSE 0 END ) AS total_like_reactions'
 				.', SUM( CASE WHEN type = "LOVE" THEN 1 ELSE 0 END ) AS total_love_reactions'
@@ -189,22 +189,22 @@
 				.', SUM( CASE WHEN type = "ANGRY" THEN 1 ELSE 0 END ) AS total_angry_reactions'
 				.' FROM post_reactions'
 				.' WHERE 1'
-				.' GROUP BY '.$field;
+				." GROUP BY {$field}";
 			return $this->database->query( $query );
 		}
 		
 		private function updateTotalReactions( $table, $totalsRecord, $id ) {
 			$highestReactionType = $this->getHighestReactionType( $totalsRecord );
-			$query = 'UPDATE '.$table
-				.' SET total_reactions = '.$totalsRecord->total_reactions
-				.', total_like_reactions = '.$totalsRecord->total_like_reactions
-				.', total_love_reactions = '.$totalsRecord->total_love_reactions
-				.', total_wow_reactions = '.$totalsRecord->total_wow_reactions
-				.', total_haha_reactions = '.$totalsRecord->total_haha_reactions
-				.', total_sad_reactions = '.$totalsRecord->total_sad_reactions
-				.', total_angry_reactions = '.$totalsRecord->total_angry_reactions
-				.', highest_reaction_type = '.$highestReactionType
-				.' WHERE id = '.$id;
+			$query = "UPDATE {$table}"
+				." SET total_reactions = {$totalsRecord->total_reactions}"
+				.", total_like_reactions = {$totalsRecord->total_like_reactions}"
+				.", total_love_reactions = {$totalsRecord->total_love_reactions}"
+				.", total_wow_reactions = {$totalsRecord->total_wow_reactions}"
+				.", total_haha_reactions = {$totalsRecord->total_haha_reactions}"
+				.", total_sad_reactions = {$totalsRecord->total_sad_reactions}"
+				.", total_angry_reactions = {$totalsRecord->total_angry_reactions}"
+				.", highest_reaction_type = {$highestReactionType}"
+				." WHERE id = {$id}";
 			$this->database->query( $query );
 		}
 		
@@ -218,7 +218,7 @@
 				} else {
 					$controversiality_score = $total_positive_reactions / $total_negative_reactions;
 				}
-				$query = "UPDATE $table SET controversiality_score = $controversiality_score WHERE id = $id";
+				$query = "UPDATE {$table} SET controversiality_score = {$controversiality_score} WHERE id = {$id}";
 				$this->database->query( $query );
 			}
 		}
@@ -244,7 +244,7 @@
 		}
 		
 		private function getTotalCommentsBy( $field ) {
-			$query = 'SELECT comments.'.$field
+			$query = "SELECT comments.{$field}"
 				.', COUNT( comments.id ) AS total_comments'
 				.', SUM( comments.like_count ) AS total_comment_likes'
 				.', SUM( CASE WHEN comments.like_count = 0 THEN 1 ELSE 0 END ) AS total_comments_zero_likes'
@@ -252,28 +252,28 @@
 				.' FROM comments'
 				.' LEFT JOIN posts ON posts.id = comments.post_id'
 				.' WHERE 1'
-				.' GROUP BY comments.'.$field;
+				." GROUP BY comments.{$field}";
 			return $this->database->query( $query );
 		}
 		
 		private function updateTotalComments( $table, $totalsRecord, $id ) {
-			$query = 'UPDATE '.$table
-				.' SET total_comments = '.$totalsRecord->total_comments
-				.', total_comment_likes = '.$totalsRecord->total_comment_likes
-				.', total_comments_zero_likes = '.$totalsRecord->total_comments_zero_likes
-				.', average_hours_to_comment = '.$totalsRecord->average_hours_to_comment
-				.' WHERE id = '.$id;
+			$query = "UPDATE {$table}"
+				." SET total_comments = {$totalsRecord->total_comments}"
+				.", total_comment_likes = {$totalsRecord->total_comment_likes}"
+				.", total_comments_zero_likes = {$totalsRecord->total_comments_zero_likes}"
+				.", average_hours_to_comment = {$totalsRecord->average_hours_to_comment}"
+				." WHERE id = {$id}";
 			$this->database->query( $query );
 		}
 		
 		private function updateDuplicateCommentCount( $user_id ) {
-			$query = "SELECT message, ( COUNT(*) - 1 ) AS duplicates FROM comments GROUP BY message WHERE user_id = $user_id HAVING duplicates > 0";
+			$query = "SELECT message, ( COUNT(*) - 1 ) AS duplicates FROM comments GROUP BY message WHERE user_id = {$user_id} HAVING duplicates > 0";
 			$stmt = $this->database->query( $query );
 			$duplicate_comment_count = 0;
 			foreach( $stmt as $comment ) {
 				$duplicate_comment_count += $comment->duplicates;
 			}
-			$query = "UPDATE users SET duplicate_comment_count = $duplicate_comment_count WHERE id = $user_id";
+			$query = "UPDATE users SET duplicate_comment_count = {$duplicate_comment_count} WHERE id = {$user_id}";
 			$this->database->query( $query );
 		}
 		
@@ -300,7 +300,7 @@
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'pages', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( 'pageMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the page with the highest ratio of $ucReaction reactions per reaction to their posts. Pages with only one reaction are eliminated." );
+				$this->setMetaData( "pageMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the page with the highest ratio of {$ucReaction} reactions per reaction to their posts. Pages with only one reaction are eliminated." );
 			}
 			
 			/* post metadata */
@@ -315,7 +315,7 @@
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'posts', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( 'postMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the post with the highest ratio of $ucReaction reactions per reaction. Posts with only one reaction are eliminated." );
+				$this->setMetaData( "postMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the post with the highest ratio of {$ucReaction} reactions per reaction. Posts with only one reaction are eliminated." );
 			}
 			
 			/* user metadata */
@@ -339,12 +339,12 @@
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'users', $reaction ) );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( 'userMost'.$ucReaction.'Reactions', json_encode( $record ), "Most $ucReaction Reactions", "This is the user with the highest ratio of $ucReaction reactions per reaction. Users with only one reaction are eliminated." );
+				$this->setMetaData( "userMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the user with the highest ratio of {$ucReaction} reactions per reaction. Users with only one reaction are eliminated." );
 			}
 		}
 		
 		private function generateMostReactionTypeQuery( $table, $type ) {
-			return "SELECT $table.* FROM $table WHERE 1 ORDER BY ( CASE WHEN $table.total_reactions <= 1 THEN 0 ELSE ( $table.total_$type_reactions / $table.total_reactions ) END ) DESC, $table.total_reactions DESC LIMIT 1";
+			return "SELECT {$table}.* FROM {$table} WHERE 1 ORDER BY ( CASE WHEN {$table}.total_reactions <= 1 THEN 0 ELSE ( {$table}.total_{$type}_reactions / {$table}.total_reactions ) END ) DESC, {$table}.total_reactions DESC LIMIT 1";
 		}
 	}
 ?>
