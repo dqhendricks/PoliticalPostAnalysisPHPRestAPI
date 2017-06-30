@@ -59,12 +59,8 @@
 						$response = $this->getRequest( $action, $id, $response );
 						break;
 					case 'POST':
-						if ( $action == 'process' ) { // special POST action to begin after scrape processing
-							$postProcessor = new PostProcessor( $this->database );
-							$response = $postProcessor->process( $response );
-						} else {
-							$response = $this->postRequest( $action, $id, $response );
-						}
+						// posts will insert or update depending if primary key already exists in DB
+						$response = $this->postRequest( $action, $id, $response );
 						break;
 					case 'DELETE':
 						$response = $this->deleteRequest( $action, $id, $response );
@@ -102,13 +98,13 @@
 			return $response;
 		}
 		
-		private function postRequest( $action, $id, $response ) {
+		private function postRequest( $action, $id, $response, $data = null ) {
 			$variables = array();
-			$data = $this->getRecordData();
+			if ( !$data ) $data = $this->getRecordData();
 			$query = $this->generatePostQuery( $action, $id, $data );
 			$variables = $this->generatePostVariables( $data, $id, $variables );
 			
-			if ( !$id ) {
+			if ( $_GET['where_field'] ) {
 				$query .= $this->generateWhereQuerySegment();
 				$variables = $this->addWhereQueryVariables( $variables );
 			}
@@ -232,7 +228,9 @@
 		}
 		
 		private function generatePostQuery( $action, $id, $data ) {
-			if ( $id ) {
+			if ( $_GET['where_field'] ) {
+				$query = "UPDATE {$action} SET ";
+			} else {
 				$query = "INSERT INTO {$action} (";
 				$thisRef = $this;
 				$query .= implode( ', ', array_map( function ( $input ) use ( $thisRef ) {
@@ -241,8 +239,6 @@
 				$query .= ') VALUES (';
 				$query .= implode( ', ', array_fill( 0, count( ( array )$data ), '?' ) );
 				$query .= ') ON DUPLICATE KEY UPDATE ';
-			} else {
-				$query = "UPDATE {$action} SET ";
 			}
 			$query .= $this->generatePostQuerySegment( $data );
 			return $query;
@@ -253,7 +249,7 @@
 				if ( is_object( $value ) ) $value = json_encode( $value );
 				$variables[] = $value;
 			}
-			if ( $id ) {
+			if ( !$_GET['where_field'] ) {
 				foreach( $data as $value ) {
 					if ( is_object( $value ) ) $value = json_encode( $value );
 					$variables[] = $value;

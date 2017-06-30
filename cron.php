@@ -7,16 +7,14 @@
 	// display errors on page (set to false on production servers)
 	ini_set( 'display_errors', true );
 	// set timezone
-	date_default_timezone_set( 'America/Los_Angeles' );
+	date_default_timezone_set('America/Los_Angeles');
 	
 	/* APPLICATION START */
 
-	set_include_path( '../application/' );
-	session_save_path( '../private_data/sessions/' );
+	require( __DIR__.'/application/Database.php' );
+	require( __DIR__.'/application/PostProcessor.php' );
 	
-	require( 'Autoloader.php' );
-	require( 'ExceptionHandler.php' );
-	
-	$app = new App();
-	$app->run();
+	$database = new Database();
+	$postProcessor = new PostProcessor( $database );
+	$postProcessor->process();
 ?>
