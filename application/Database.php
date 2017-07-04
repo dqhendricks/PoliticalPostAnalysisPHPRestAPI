@@ -2,18 +2,15 @@
 
 	class Database extends PDO {
 		
-		public function __construct() {
+		public function __construct( $db, $user, $password ) {
 			$host = 'localhost';
-			$db = 'spotless_fb_data';
-			$user = 'spotless_spot';
-			$password = 'ghW8@1hT';
 			$charset = 'utf8';
 
 			$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
 			$options = array(
 				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 				PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-				PDO::ATTR_EMULATE_PREPARES => false,
+				PDO::ATTR_EMULATE_PREPARES => false
 			);
 			parent::__construct( $dsn, $user, $password, $options );
 		}

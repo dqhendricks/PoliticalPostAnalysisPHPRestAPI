@@ -17,6 +17,8 @@
 	require( 'Autoloader.php' );
 	require( 'ExceptionHandler.php' );
 	
-	$app = new App();
+	$databasePassword = file_get_contents( '../private_data/db_key.txt' ); // txt file contains DB password. hidden from git
+	$database = new Database( 'spotless_fb_data', 'spotless_spot', $databasePassword );
+	$app = new App( $database );
 	$app->run();
 ?>

@@ -1,5 +1,9 @@
 <?php
 
+	/*
+		i have this running on a cron job every 5 minutes. if it sees a new scrape has finished running, it begins the post processing, otherwise does nothing.
+	*/
+
 	/* SYSTEM SETTINGS */
 
 	// set error reporting level
@@ -14,7 +18,8 @@
 	require( __DIR__.'/application/Database.php' );
 	require( __DIR__.'/application/PostProcessor.php' );
 	
-	$database = new Database();
+	$databasePassword = file_get_contents( __DIR__.'/private_data/db_key.txt' ); // txt file contains DB password. hidden from git
+	$database = new Database( 'spotless_fb_data', 'spotless_spot', $databasePassword );
 	$postProcessor = new PostProcessor( $database );
 	$postProcessor->process();
 ?>

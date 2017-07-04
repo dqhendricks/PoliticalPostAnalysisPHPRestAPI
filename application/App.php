@@ -35,8 +35,12 @@
 		protected $database;
 		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process', 'meta_data' );
 		
-		public function run() {
+		public function __construct( $database ) {
+			$this->database = $database;
 			$this->accessToken = file_get_contents( '../private_data/api_key.txt' ); // txt file contains API key. hidden from git
+		}
+		
+		public function run() {
 			if ( $this->hasAccess() ) {
 				$request = explode( '/', $_GET['r'] );
 				$this->processRequest( $request[0], $request[1] );
@@ -53,13 +57,12 @@
 			if ( !$this->actionExists( $action ) ) {
 				$response->error = "Error: This action does not exist (action: {$action}, id: {$id}).";
 			} else {
-				$this->database = new Database();
 				switch( $_SERVER['REQUEST_METHOD'] ) {
 					case 'GET':
 						$response = $this->getRequest( $action, $id, $response );
 						break;
 					case 'POST':
-						// posts will insert or update depending if primary key already exists in DB
+						// posts without WHERE clauses will insert or update depending if primary key already exists in DB
 						$response = $this->postRequest( $action, $id, $response );
 						break;
 					case 'DELETE':

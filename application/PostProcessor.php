@@ -1,48 +1,55 @@
 <?
 
+	/*
+		many of these queries could be more performant, but I was running into memory issues with the larger ones. I had to break these down into smaller, less performant queries and routines in order to complete processing without memory errors. this class could probably be broken down into three smaller classes, separating users, posts, and pages. statement caching seems to make the code less readable, but it is faster
+	*/
+
 	class PostProcessor {
 		
 		protected $database;
-		protected $meta_data_query_stmt;
+		protected $updateTotalReactionsStmt = array();
+		protected $updateTotalCommentsStmt = array();
+		protected $updateControversialityScoreStmt = array();
+		protected $setMetaDataQueryStmt;
+		protected $getMetaDataQueryStmt;
+		protected $getDuplicateCommentCountStmt;
+		protected $updateDuplicateCommentCountStmt;
 		
 		public function __construct( $database ) {
 			$this->database = $database;
-			$query = 'INSERT INTO meta_data ( `key`, `value`, `name`, `description` ) VALUES ( ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE value = ?, name = ?, description = ?';
-			$this->meta_data_query_stmt = $this->database->prepare( $query );
+			$this->setMetaDataQueryStmt = $this->database->prepare( 'INSERT INTO meta_data ( `key`, `value`, `name`, `description` ) VALUES ( ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE value = ?, name = ?, description = ?' );
+			$this->getMetaDataQueryStmt = $this->database->prepare( 'SELECT `value` FROM meta_data WHERE `key` = ? LIMIT 1' );
+			$this->getDuplicateCommentCountStmt = $this->database->prepare( 'SELECT message, COUNT( id ) AS duplicates FROM comments WHERE user_id = ? GROUP BY message HAVING duplicates > 1' );
+			$this->updateDuplicateCommentCountStmt = $this->database->prepare( 'UPDATE users SET duplicate_comment_count = ? WHERE id = ?' );
 		}
 		
 		public function process() {
 			if ( $this->getMetaData( 'currentlyRunningPostProcessor' ) == '0' && $this->getMetaData( 'newLatestPostTime' ) != $this->getMetaData( 'latestPostTime' ) ) {
 				set_time_limit( 0 );
-				mail( 'dqhendricks@hotmail.com', 'cron started', 'cron started', 'From: no-reply@dustinhendricks.com' );
 				$this->setMetaData( 'currentlyRunningPostProcessor', '1' );
 				try {
 					$this->deleteOldRecords();
-					mail( 'dqhendricks@hotmail.com', 'cron stage 1', 'cron started', 'From: no-reply@dustinhendricks.com' );
 					$this->updateMissingUsers();
-					mail( 'dqhendricks@hotmail.com', 'cron stage 2', 'cron started', 'From: no-reply@dustinhendricks.com' );
 					$this->updatePostMetaData();
-					mail( 'dqhendricks@hotmail.com', 'cron stage 3', 'cron started', 'From: no-reply@dustinhendricks.com' );
 					$this->updateUserMetaData();
-					mail( 'dqhendricks@hotmail.com', 'cron stage 4', 'cron started', 'From: no-reply@dustinhendricks.com' );
 					$this->updatePageMetaData();
-					mail( 'dqhendricks@hotmail.com', 'cron stage 5', 'cron started', 'From: no-reply@dustinhendricks.com' );
 					$this->updateMetaData();
+					$this->setMetaData( 'currentlyRunningPostProcessor', '0' );
 				} catch ( Exception $exception ) {
 					mail( 'dqhendricks@hotmail.com', 'cron error', $exception->getMessage(), 'From: no-reply@dustinhendricks.com' );
 				}
-				mail( 'dqhendricks@hotmail.com', 'cron ended', 'cron ended', 'From: no-reply@dustinhendricks.com' );
-				$this->setMetaData( 'currentlyRunningPostProcessor', '0' );
 			}
 		}
 		
 		private function setMetaData( $key, $value, $name = '', $description = '' ) {
-			$variables = array( $key, $value, $name, $description, $value, $name, $description );
-			return $this->meta_data_query_stmt->execute( $variables );
+			return $this->setMetaDataQueryStmt->execute( array( $key, $value, $name, $description, $value, $name, $description ) );
 		}
 		
 		private function getMetaData( $key ) {
-			return $this->database->fetchRowPrepared( 'SELECT * FROM meta_data WHERE `key` = ? LIMIT 1', array( $key ) );
+			$this->getMetaDataQueryStmt->execute( array( $key ) );
+			$column = $this->getMetaDataQueryStmt->fetchColumn( 0 );
+			$this->getMetaDataQueryStmt->closeCursor();
+			return $column;
 		}
 		
 		private function deleteOldRecords() {
@@ -52,9 +59,13 @@
 				.' FROM comments'
 				.' WHERE comments.created_time < ?';
 			$this->database->queryPrepared( $query, $variables );
-			$query = 'DELETE posts, post_reactions'
+			$query = 'DELETE post_reactions'
+				.' FROM post_reactions'
+				.' LEFT JOIN posts ON post_reactions.post_id = posts.id'
+				.' WHERE posts.created_time < ?';
+			$this->database->queryPrepared( $query, $variables );
+			$query = 'DELETE posts'
 				.' FROM posts'
-				.' LEFT JOIN post_reactions ON post_reactions.post_id = posts.id'
 				.' WHERE posts.created_time < ?';
 			$this->database->queryPrepared( $query, $variables );
 			// remove orphaned users
@@ -74,23 +85,21 @@
 		
 		private function updateMissingUsers() {
 			// turn reactions into users
-			$query = 'INSERT IGNORE INTO users ( users.id, users.name, users.link, users.picture )'
-				.' SELECT DISTINCT post_reactions.user_id, post_reactions.name, post_reactions.link, post_reactions.picture'
+			$query = 'SELECT post_reactions.user_id, post_reactions.name, post_reactions.link, post_reactions.picture'
 				.' FROM post_reactions'
-				.' WHERE 1';
+				.' WHERE NOT EXISTS ( SELECT * FROM users WHERE users.id = post_reactions.user_id )';
 			$stmt = $this->database->query( $query );
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 1b', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
+			$insertStmt = $this->database->prepare( 'INSERT IGNORE INTO users ( users.id, users.name, users.link, users.picture ) VALUES ( ?, ?, ?, ? )' );
+			foreach( $stmt as $postReaction ) {
+				$insertStmt->execute( array( $postReaction['user_id'], $postReaction['name'], $postReaction['link'], $postReaction['picture'] ) );
+			}
 			// some users cannot be scraped
 			$query = 'SELECT DISTINCT comments.from FROM comments WHERE NOT EXISTS ( SELECT users.* FROM users WHERE users.id = comments.user_id )';
 			$stmt = $this->database->query( $query );
+			$insertStmt = $this->database->prepare( 'INSERT INTO users ( id, name, link ) VALUES ( ?, ?, ? )' );
 			foreach( $stmt as $comment ) {
 				$user = json_decode( $comment['from'] );
-				$query = 'INSERT INTO users ( id, name, link )'
-					.' VALUES ( ?, ?, ? )';
-				$values = array( $user['id'], $user['name'], "https://www.facebook.com/app_scoped_user_id/{$user['id']}/" );
-				$this->database->queryPrepared( $query, $values );
+				$insertStmt->execute( array( $user['id'], $user['name'], "https://www.facebook.com/app_scoped_user_id/{$user['id']}/" ) ); 
 			}
 		}
 		
@@ -103,9 +112,6 @@
 					$this->updateControversialityScore( 'posts', $post, $post['post_id'] );
 				}
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 2b', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// comment data
 			$stmt = $this->getTotalCommentsBy( 'post_id' );
 			foreach( $stmt as $post ) {
@@ -121,18 +127,12 @@
 			foreach( $stmt as $user ) {
 				$this->updateTotalReactions( 'users', $user, $user['user_id'] );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 3b', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// comment data
 			$stmt = $this->getTotalCommentsBy( 'user_id' );
 			foreach( $stmt as $user ) {
 				$this->updateTotalComments( 'users', $user, $user['user_id'] );
 				$this->updateDuplicateCommentCount( $user['user_id'] );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 3c', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// affiliation data
 			$query = 'SELECT post_reactions.user_id'
 				.', COUNT( post_reactions.id ) AS total_likes'
@@ -142,50 +142,37 @@
 				.' WHERE post_reactions.type = "LIKE"'
 				.' GROUP BY post_reactions.user_id';
 			$stmt = $this->database->query( $query );
+			$insertStmt = $this->database->prepare( 'UPDATE users SET affiliation = ? WHERE users.id = ?' );
 			foreach( $stmt as $user ) {
 				$affiliation = $user['affiliation_total'] / $user['total_likes'];
-				$query = "UPDATE users SET affiliation = {$affiliation} WHERE users.id = {$user['user_id']}";
-				$this->database->query( $query );
+				$insertStmt->execute( array( $affiliation, $user['user_id'] ) );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 3d', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// pages interacted with data
-			$query = 'SELECT x.user_id'
-				.', GROUP_CONCAT( DISTINCT x.page_id ) AS pages_interacted_with'
-				.', COUNT( DISTINCT x.page_id ) AS total_pages_interacted_with'
-				.' FROM ('
-					.' SELECT DISTINCT post_reactions.page_id, post_reactions.user_id FROM post_reactions WHERE 1'
-					.' UNION ALL SELECT DISTINCT comments.page_id, comments.user_id FROM comments WHERE 1'
-				.' ) AS x'
+			$query = 'SELECT comments.user_id'
+				.', GROUP_CONCAT( DISTINCT comments.page_id ) AS pages_interacted_with'
+				.', COUNT( DISTINCT comments.page_id ) AS total_pages_interacted_with'
+				.' FROM comments'
 				.' WHERE 1'
-				.' GROUP BY x.user_id';
+				.' GROUP BY comments.user_id';
 			$stmt = $this->database->query( $query );
+			$insertStmt = $this->database->prepare( 'UPDATE users'
+				.' SET pages_interacted_with = ?'
+				.', total_pages_interacted_with = ?'
+				.' WHERE id = ?' );
 			foreach( $stmt as $user ) {
-				$query = 'UPDATE users'
-					." SET pages_interacted_with = '{$user['pages_interacted_with']}'"
-					.", total_pages_interacted_with = {$user['total_pages_interacted_with']}"
-					." WHERE id = {$user['user_id']}";
-				$this->database->query( $query );
+				$insertStmt->execute( array( $user['pages_interacted_with'], $user['total_pages_interacted_with'], $user['user_id'] ) );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 3e', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// posts interacted with data
-			$query = 'SELECT x.user_id'
-				.', COUNT( DISTINCT x.post_id ) AS total_posts_interacted_with'
-				.' FROM ('
-					.' SELECT DISTINCT post_reactions.post_id, post_reactions.user_id FROM post_reactions WHERE 1'
-					.' UNION ALL SELECT DISTINCT comments.post_id, comments.user_id FROM comments WHERE 1'
-				.' ) AS x'
+			$query = 'SELECT comments.user_id, COUNT( DISTINCT comments.post_id ) AS total_posts_interacted_with'
+				.' FROM comments'
 				.' WHERE 1'
-				.' GROUP BY x.user_id';
+				.' GROUP BY comments.user_id';
 			$stmt = $this->database->query( $query );
+			$insertStmt = $this->database->prepare( 'UPDATE users'
+				.' SET total_posts_interacted_with = ?'
+				.' WHERE id = ?' );
 			foreach( $stmt as $user ) {
-				$query = 'UPDATE users'
-					." SET total_posts_interacted_with = {$user['total_posts_interacted_with']}"
-					." WHERE id = {$user['user_id']}";
-				$this->database->query( $query );
+				$insertStmt->execute( array( $user['total_posts_interacted_with'], $user['user_id'] ) );
 			}
 		}
 		
@@ -193,26 +180,20 @@
 			// reaction data
 			$stmt = $this->getTotalReactionsBy( 'page_id' );
 			foreach( $stmt as $page ) {
-				$this->updateTotalReactions( 'pages', $page, $page->page_id );
-				$this->updateControversialityScore( 'pages', $page, $page->page_id );
+				$this->updateTotalReactions( 'pages', $page, $page['page_id'] );
+				$this->updateControversialityScore( 'pages', $page, $page['page_id'] );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 4b', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// comment data
 			$stmt = $this->getTotalCommentsBy( 'page_id' );
 			foreach( $stmt as $page ) {
-				$this->updateTotalComments( 'pages', $page, $page->page_id );
+				$this->updateTotalComments( 'pages', $page, $page['page_id'] );
 			}
-			
-			mail( 'dqhendricks@hotmail.com', 'cron stage 4c', 'cron started', 'From: no-reply@dustinhendricks.com' );
-			
 			// posts data
 			$query = 'SELECT page_id, COUNT( id ) AS total_posts FROM posts WHERE 1 GROUP BY page_id';
 			$stmt = $this->database->query( $query );
+			$insertStmt = $this->database->prepare( 'UPDATE pages SET total_posts = ? WHERE id = ?' );
 			foreach( $stmt as $page ) {
-				$query = "UPDATE pages SET total_posts = {$page['total_posts']} WHERE id = {$page['page_id']}";
-				$this->database->query( $query );
+				$insertStmt->execute( array( $page['total_posts'], $page['page_id'] ) );
 			}
 		}
 		
@@ -233,17 +214,30 @@
 		
 		private function updateTotalReactions( $table, $totalsRecord, $id ) {
 			$highestReactionType = $this->getHighestReactionType( $totalsRecord );
-			$query = "UPDATE {$table}"
-				." SET total_reactions = {$totalsRecord['total_reactions']}"
-				.", total_like_reactions = {$totalsRecord['total_like_reactions']}"
-				.", total_love_reactions = {$totalsRecord['total_love_reactions']}"
-				.", total_wow_reactions = {$totalsRecord['total_wow_reactions']}"
-				.", total_haha_reactions = {$totalsRecord['total_haha_reactions']}"
-				.", total_sad_reactions = {$totalsRecord['total_sad_reactions']}"
-				.", total_angry_reactions = {$totalsRecord['total_angry_reactions']}"
-				.", highest_reaction_type = {$highestReactionType}"
-				." WHERE id = {$id}";
-			$this->database->query( $query );
+			$stmt = $this->getUpdateTotalReactionsStmt( $table );
+			$stmt->execute( array( $totalsRecord['total_reactions'],
+				$totalsRecord['total_like_reactions'],
+				$totalsRecord['total_love_reactions'],
+				$totalsRecord['total_wow_reactions'],
+				$totalsRecord['total_haha_reactions'],
+				$totalsRecord['total_sad_reactions'],
+				$totalsRecord['total_angry_reactions'],
+				$highestReactionType,
+				$id ) );
+		}
+		
+		private function getUpdateTotalReactionsStmt( $table ) {
+			if ( !$this->updateTotalReactionsStmt[ $table ] ) $this->updateTotalReactionsStmt[ $table ] = $this->database->prepare( "UPDATE {$table}"
+				.' SET total_reactions = ?'
+				.', total_like_reactions = ?'
+				.', total_love_reactions = ?'
+				.', total_wow_reactions = ?'
+				.', total_haha_reactions = ?'
+				.', total_sad_reactions = ?'
+				.', total_angry_reactions = ?'
+				.', highest_reaction_type = ?'
+				.' WHERE id = ?' ); 
+			return $this->updateTotalReactionsStmt[ $table ];
 		}
 		
 		private function updateControversialityScore( $table, $totalsRecord, $id ) {
@@ -256,15 +250,20 @@
 				} else {
 					$controversiality_score = $total_positive_reactions / $total_negative_reactions;
 				}
-				$query = "UPDATE {$table} SET controversiality_score = {$controversiality_score} WHERE id = {$id}";
-				$this->database->query( $query );
+				
+				$stmt = $this->getUpdateControversialityScoreStmt( $table );
+				$stmt->execute( array( $controversiality_score, $id ) );
 			}
+		}
+		
+		private function getUpdateControversialityScoreStmt( $table ) {
+			if ( !$this->updateControversialityScoreStmt[ $table ] ) $this->updateControversialityScoreStmt[ $table ] = $this->database->prepare( "UPDATE {$table} SET controversiality_score = ? WHERE id = ?" ); 
+			return $this->updateControversialityScoreStmt[ $table ];
 		}
 		
 		private function getHighestReactionType( $totalsRecord ) {
 			$totalsRecord = (array)$totalsRecord;
 			$reactionTypes = array(
-				'LIKE' => 'total_like_reactions',
 				'LOVE' => 'total_love_reactions',
 				'WOW' => 'total_wow_reactions',
 				'HAHA' => 'total_haha_reactions',
@@ -295,24 +294,31 @@
 		}
 		
 		private function updateTotalComments( $table, $totalsRecord, $id ) {
-			$query = "UPDATE {$table}"
-				." SET total_comments = {$totalsRecord['total_comments']}"
-				.", total_comment_likes = {$totalsRecord['total_comment_likes']}"
-				.", total_comments_zero_likes = {$totalsRecord['total_comments_zero_likes']}"
-				.", average_hours_to_comment = {$totalsRecord['average_hours_to_comment']}"
-				." WHERE id = {$id}";
-			$this->database->query( $query );
+			$stmt = $this->getUpdateTotalCommentsStmt( $table );
+			$stmt->execute( array( $totalsRecord['total_comments'],
+				$totalsRecord['total_comment_likes'],
+				$totalsRecord['total_comments_zero_likes'],
+				$totalsRecord['average_hours_to_comment'],
+				$id ) );
+		}
+		
+		private function getUpdateTotalCommentsStmt( $table ) {
+			if ( !$this->updateTotalCommentsStmt[ $table ] ) $this->updateTotalCommentsStmt[ $table ] = $this->database->prepare( "UPDATE {$table}"
+				.' SET total_comments = ?'
+				.', total_comment_likes = ?'
+				.', total_comments_zero_likes = ?'
+				.', average_hours_to_comment = ?'
+				.' WHERE id = ?' );
+			return $this->updateTotalCommentsStmt[ $table ];
 		}
 		
 		private function updateDuplicateCommentCount( $user_id ) {
-			$query = "SELECT message, ( COUNT(*) - 1 ) AS duplicates FROM comments GROUP BY message WHERE user_id = {$user_id} HAVING duplicates > 0";
-			$stmt = $this->database->query( $query );
-			$duplicate_comment_count = 0;
-			foreach( $stmt as $comment ) {
-				$duplicate_comment_count += $comment['duplicates'];
+			$this->getDuplicateCommentCountStmt->execute( array( $user_id ) );
+			$duplicateCommentCount = 0;
+			foreach( $this->getDuplicateCommentCountStmt as $comment ) {
+				$duplicateCommentCount += $comment['duplicates'];
 			}
-			$query = "UPDATE users SET duplicate_comment_count = {$duplicate_comment_count} WHERE id = {$user_id}";
-			$this->database->query( $query );
+			$this->updateDuplicateCommentCountStmt->execute( array( $duplicateCommentCount, $user_id ) );
 		}
 		
 		private function updateMetaData() {
@@ -377,7 +383,6 @@
 			}
 			
 			/* time range */
-			
 			$newEarliestTime = $this->getMetaData( 'newEarliestPostTime' );
 			$this->setMetaData( 'earliestPostTime', $newEarliestTime, 'Earliest Post Time', 'Posts used in the analysis will have been published no earlier than this date.' );
 			$newLatestTime = $this->getMetaData( 'newLatestPostTime' );
