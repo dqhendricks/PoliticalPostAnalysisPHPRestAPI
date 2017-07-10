@@ -12,14 +12,14 @@
 			$_GET['fields'] (comma separated field list) default '*'
 			$_GET['count'] (true/empty, true returns query row count as 'total' but no other fields)
 			
-		GET, POST, DELETE - conditional operations
-			$_GET['where_field'] (field name)
-			$_GET['where_operator'] ('e', 'gt', 'gte', 'lt', 'lte', 'match') default 'e'
-			$_GET['where_value'] (value to compare)
+		GET, POST, DELETE - conditional operations (can each be comma separated for multiple search conditions)
+			$_GET['where_fields'] (field name)
+			$_GET['where_operators'] ('e', 'gt', 'gte', 'lt', 'lte', 'match')
+			$_GET['where_values'] (value to compare)
 			
 		GET - ordering
 			$_GET['order_by'] (field name) default 'id'
-			$_GET['order'] ('ASC'/'DESC') default 'ASC'
+			$_GET['order_direction'] ('ASC'/'DESC') default 'ASC'
 		
 		GET - limiting return data
 			$_GET['row_count'] (number of rows)
@@ -34,6 +34,9 @@
 		protected $accessToken;
 		protected $database;
 		protected $availableActions = array( 'pages', 'posts', 'users', 'comments', 'post_reactions', 'process', 'meta_data' );
+		protected $whereFields;
+		protected $whereOperators;
+		protected $whereValues;
 		
 		public function __construct( $database ) {
 			$this->database = $database;
@@ -52,10 +55,14 @@
 		}
 		
 		private function processRequest( $action, $id ) {
+			header( 'Access-Control-Allow-Origin: *' );
+			header( 'Content-type: application/json' );
 			$response = new stdClass();
 			
 			if ( !$this->actionExists( $action ) ) {
 				$response->error = "Error: This action does not exist (action: {$action}, id: {$id}).";
+			} else if ( !$this->extractWhereArguments() ) {
+				$response->error = "Error: You must have the same number of where_fields, where_operators, and where_values.";
 			} else {
 				switch( $_SERVER['REQUEST_METHOD'] ) {
 					case 'GET':
@@ -89,13 +96,13 @@
 			if ( $id ) {
 				$query .= $this->generateDefaultIDQuerySegment();
 				$variables[] = $id;
-				$response->data = $this->decodeDatabaseJSON( $this->database->fetchRowPrepared( $query, $variables ) );
+				$response = $this->decodeDatabaseJSON( $this->database->fetchRowPrepared( $query, $variables ) );
 			} else {
-				$response->data = array();
+				$response = array();
 				$query .= $this->generateWhereQuerySegment().$this->generateOrderQuerySegment().$this->generateLimitQuerySegment();
 				$variables = $this->addLimitQueryVariables( $this->addWhereQueryVariables( $variables ) );
 				$stmt = $this->database->queryPrepared( $query, $variables );
-				foreach ( $stmt as $row ) $response->data[$row['id']] = $this->decodeDatabaseJSON( $row );
+				foreach ( $stmt as $row ) $response[$row['id']] = $this->decodeDatabaseJSON( $row );
 			}
 			
 			return $response;
@@ -139,35 +146,44 @@
 			return '`'.trim( str_replace( '`', '', $input ) ).'`';
 		}
 		
-		private function generateDefaultIDQuerySegment() {
-			return ' WHERE id = ? LIMIT 1';
-		}
-		
 		private function generateFieldsList() {
 			if ( $_GET['count'] ) {
 				return 'COUNT( * ) AS total';
 			} else if ( $_GET['fields'] ) {
 				$fields = explode( ',', $_GET['fields'] );
 				if ( !in_array( 'id', $fields ) ) $fields[] = 'id'; // always add id
-				return implode( ', ', array_map( function( $input ) {
-					return $this->sanitizeField( $input );
-				}, $fields ) );
+				return implode( ', ', array_map( array( $this, 'sanitizeField' ), $fields ) );
 			} else {
 				return '*';
 			}
 		}
 		
+		private function generateDefaultIDQuerySegment() {
+			return ' WHERE id = ? LIMIT 1';
+		}
+		
+		private function extractWhereArguments() {
+			$this->whereFields = explode( ',', $_GET['where_fields'] ); // trim not needed since we trim in field sanitization
+			$this->whereOperators = array_map( 'trim', explode( ',', $_GET['where_operators'] ) );
+			$this->whereValues = array_map( 'trim', explode( ',', $_GET['where_values'] ) );
+			return ( count( $this->whereFields ) == count( $this->whereOperators ) && count( $this->whereFields ) == count( $this->whereValues ) );
+		}
+		
 		private function generateWhereQuerySegment() {
-			if ( $_GET['where_field'] ) {
-				return ' WHERE '.$this->sanitizeField( $_GET['where_field'] ).' '.$this->generateWhereOperator().' ?';
+			if ( $_GET['where_fields'] ) {
+				$whereConditions = array();
+				for ( $i = 0; $i < count( $this->whereFields ); $i++ ) {
+					$whereConditions[] = $this->sanitizeField( $this->whereFields[$i] ).' '.$this->processWhereOperator( $this->whereOperators[$i] ).' ?';
+				}
+				return ' WHERE '.implode( ' AND ', $whereConditions );
 			} else {
 				return ' WHERE 1';
 			}
 		}
 		
-		private function generateWhereOperator() {
+		private function processWhereOperator( $whereOperator ) {
 			$returnValue = '=';
-			switch( $_GET['where_operator'] ) {
+			switch( $whereOperator ) {
 				case 'e':
 					$returnValue = '=';
 					break;
@@ -191,11 +207,13 @@
 		}
 		
 		private function addWhereQueryVariables( $variables ) {
-			if ( $_GET['where_value'] ) {
-				if ( $_GET['where_operator'] == 'match' ) {
-					$variables[] = '%'.$_GET['where_value'].'%';
-				} else {
-					$variables[] = $_GET['where_value'];
+			if ( $_GET['where_values'] ) {
+				for ( $i = 0; $i < count( $this->whereValues ); $i++ ) {
+					if ( $this->whereOperators[$i] == 'match' ) {
+						$variables[] = '%'.$this->whereValues[$i].'%';
+					} else {
+						$variables[] = $this->whereValues[$i];
+					}
 				}
 			}
 			return $variables;
@@ -203,8 +221,8 @@
 		
 		private function generateOrderQuerySegment() {
 			if ( $_GET['order_by'] ) {
-				$order = ( $_GET['order'] == 'DESC' ) ? 'DESC' : 'ASC';
-				return ' ORDER BY '.$this->sanitizeField( $_GET['order_by'] ).' '.$order;
+				$orderDirection = ( $_GET['order_direction'] == 'DESC' ) ? 'DESC' : 'ASC';
+				return ' ORDER BY '.$this->sanitizeField( $_GET['order_by'] ).' '.$orderDirection;
 			} else {
 				return ' ORDER BY id ASC';
 			}
@@ -236,9 +254,7 @@
 			} else {
 				$query = "INSERT INTO {$action} (";
 				$thisRef = $this;
-				$query .= implode( ', ', array_map( function ( $input ) use ( $thisRef ) {
-					return $thisRef->sanitizeField( $input );
-				}, array_keys( ( array )$data ) ) );
+				$query .= implode( ', ', array_map( array( $this, 'sanitizeField' ), array_keys( ( array )$data ) ) );
 				$query .= ') VALUES (';
 				$query .= implode( ', ', array_fill( 0, count( ( array )$data ), '?' ) );
 				$query .= ') ON DUPLICATE KEY UPDATE ';
@@ -272,7 +288,7 @@
 		private function decodeDatabaseJSON( $record ) {
 			foreach( $record as $field => $value ) {
 				$object = json_decode( $value );
-				if ( is_object( $object ) ) $record[$field] = $object;
+				if ( is_object( $object ) ) $record[$field] = $this->decodeDatabaseJSON( $object );
 			}
 			return $record;
 		}

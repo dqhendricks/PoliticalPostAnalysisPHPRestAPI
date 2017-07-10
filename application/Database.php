@@ -43,7 +43,9 @@
 		
 		public function fetchColumnPrepared( $query, $variables = array(), $column = 0 ) {
 			$stmt = $this->queryPrepared( $query, $variables );
-			return $stmt->fetchColumn( $column );
+			$value = $stmt->fetchColumn( $column );
+			$stmt->closeCursor();
+			return $value;
 		}
 		
 		public function query( $query ) {
@@ -63,7 +65,9 @@
 		
 		public function fetchColumn( $query, $column = 0 ) {
 			$stmt = $this->query( $query );
-			return $stmt->fetchColumn( $column );
+			$value = $stmt->fetchColumn( $column );
+			$stmt->closeCursor();
+			return $value;
 		}
 		
 		private function catchException( $exception, $query, $variables = array() ) {

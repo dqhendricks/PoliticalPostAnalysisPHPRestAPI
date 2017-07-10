@@ -10,17 +10,38 @@
 		protected $updateTotalReactionsStmt = array();
 		protected $updateTotalCommentsStmt = array();
 		protected $updateControversialityScoreStmt = array();
+		protected $getCommentsOverTimeStmt = array();
+		protected $setCommentsOverTimeStmt = array();
 		protected $setMetaDataQueryStmt;
 		protected $getMetaDataQueryStmt;
 		protected $getDuplicateCommentCountStmt;
 		protected $updateDuplicateCommentCountStmt;
+		protected $getImageCommentCountStmt;
+		protected $updateImageCommentCountStmt;
 		
 		public function __construct( $database ) {
 			$this->database = $database;
-			$this->setMetaDataQueryStmt = $this->database->prepare( 'INSERT INTO meta_data ( `key`, `value`, `name`, `description` ) VALUES ( ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE value = ?, name = ?, description = ?' );
+			
+			$this->setMetaDataQueryStmt = $this->database->prepare( 'INSERT INTO meta_data ( `key`, `value`, `type`, `name`, `description` ) VALUES ( ?, ?, ?, ?, ? ) ON DUPLICATE KEY UPDATE value = ?, type = ?, name = ?, description = ?' );
+			
 			$this->getMetaDataQueryStmt = $this->database->prepare( 'SELECT `value` FROM meta_data WHERE `key` = ? LIMIT 1' );
-			$this->getDuplicateCommentCountStmt = $this->database->prepare( 'SELECT message, COUNT( id ) AS duplicates FROM comments WHERE user_id = ? GROUP BY message HAVING duplicates > 1' );
+			
+			$this->getDuplicateCommentCountStmt = $this->database->prepare( 'SELECT message, COUNT( id ) AS duplicates FROM comments WHERE user_id = ? AND message != "" GROUP BY message HAVING duplicates > 1' );
+			
 			$this->updateDuplicateCommentCountStmt = $this->database->prepare( 'UPDATE users SET duplicate_comment_count = ? WHERE id = ?' );
+			
+			$this->getImageCommentCountStmt = $this->database->prepare( 'SELECT COUNT( id ) AS image_comment_count FROM comments WHERE user_id = ? AND message = ""' );
+			
+			$this->updateImageCommentCountStmt = $this->database->prepare( 'UPDATE users SET image_comment_count = ? WHERE id = ?' );
+		}
+		
+		private function generateOverTimeQuerySegment( $table ) {
+			$overTimeQuerySegment = '';
+			for ( $i = 0; $i < 24; $i++ ) {
+				$hour = str_pad( $i, 2, '0', STR_PAD_LEFT );
+				$overTimeQuerySegment .= ", SUM( CASE WHEN HOUR( { $table }.created_time_mysql ) == '{ $hour }' THEN 1 ELSE 0 END ) AS total_{ $hour }";
+			}
+			return $overTimeQuerySegment;
 		}
 		
 		public function process() {
@@ -28,21 +49,22 @@
 				set_time_limit( 0 );
 				$this->setMetaData( 'currentlyRunningPostProcessor', '1' );
 				try {
-					$this->deleteOldRecords();
+					//$this->deleteOldRecords();
 					$this->updateMissingUsers();
 					$this->updatePostMetaData();
 					$this->updateUserMetaData();
 					$this->updatePageMetaData();
 					$this->updateMetaData();
 					$this->setMetaData( 'currentlyRunningPostProcessor', '0' );
+					mail( 'dqhendricks@hotmail.com', 'cron complete', 'cron complete', 'From: no-reply@dustinhendricks.com' );
 				} catch ( Exception $exception ) {
 					mail( 'dqhendricks@hotmail.com', 'cron error', $exception->getMessage(), 'From: no-reply@dustinhendricks.com' );
 				}
 			}
 		}
 		
-		private function setMetaData( $key, $value, $name = '', $description = '' ) {
-			return $this->setMetaDataQueryStmt->execute( array( $key, $value, $name, $description, $value, $name, $description ) );
+		private function setMetaData( $key, $value, $type = 'system', $name = '', $description = '' ) {
+			return $this->setMetaDataQueryStmt->execute( array( $key, $value, $type, $name, $description, $value, $type, $name, $description ) );
 		}
 		
 		private function getMetaData( $key ) {
@@ -132,6 +154,7 @@
 			foreach( $stmt as $user ) {
 				$this->updateTotalComments( 'users', $user, $user['user_id'] );
 				$this->updateDuplicateCommentCount( $user['user_id'] );
+				$this->updateImageCommentCount( $user['user_id'] );
 			}
 			// affiliation data
 			$query = 'SELECT post_reactions.user_id'
@@ -189,12 +212,27 @@
 				$this->updateTotalComments( 'pages', $page, $page['page_id'] );
 			}
 			// posts data
-			$query = 'SELECT page_id, COUNT( id ) AS total_posts FROM posts WHERE 1 GROUP BY page_id';
+			$query = 'SELECT page_id'
+				.', COUNT( id ) AS total_posts'
+				.$this->generateOverTimeQuerySegment( 'posts' )
+				.' FROM posts'
+				.' WHERE 1'
+				.' GROUP BY page_id';
 			$stmt = $this->database->query( $query );
-			$insertStmt = $this->database->prepare( 'UPDATE pages SET total_posts = ? WHERE id = ?' );
+			$insertStmt = $this->database->prepare( 'UPDATE pages SET total_posts = ?, posts_over_time = ? WHERE id = ?' );
 			foreach( $stmt as $page ) {
-				$insertStmt->execute( array( $page['total_posts'], $page['page_id'] ) );
+				$overTimeValues = $this->formatOverTimeValues( $page );
+				$insertStmt->execute( array( $page['total_posts'], $overTimeValues, $page['page_id'] ) );
 			}
+		}
+		
+		private function formatOverTimeValues( $record ) {
+			$overTimeValues = array();
+			for ( $i = 0; $i < 24; $i++ ) {
+				$hour = str_pad( $i, 2, '0', STR_PAD_LEFT );
+				$overTimeValues[$hour] = $record["total_{ $hour }"];
+			}
+			return json_encode( $overTimeValues );
 		}
 		
 		private function getTotalReactionsBy( $field ) {
@@ -286,6 +324,7 @@
 				.', SUM( comments.like_count ) AS total_comment_likes'
 				.', SUM( CASE WHEN comments.like_count = 0 THEN 1 ELSE 0 END ) AS total_comments_zero_likes'
 				.', AVG( TIME_TO_SEC( TIMEDIFF( comments.created_time_mysql, posts.created_time_mysql ) ) / ( 60 * 60 ) ) AS average_hours_to_comment'
+				.$this->generateOverTimeQuerySegment( 'comments' )
 				.' FROM comments'
 				.' LEFT JOIN posts ON posts.id = comments.post_id'
 				.' WHERE 1'
@@ -299,6 +338,7 @@
 				$totalsRecord['total_comment_likes'],
 				$totalsRecord['total_comments_zero_likes'],
 				$totalsRecord['average_hours_to_comment'],
+				$this->formatOverTimeValues( $totalsRecord ),
 				$id ) );
 		}
 		
@@ -308,17 +348,25 @@
 				.', total_comment_likes = ?'
 				.', total_comments_zero_likes = ?'
 				.', average_hours_to_comment = ?'
+				.', comments_over_time = ?'
 				.' WHERE id = ?' );
 			return $this->updateTotalCommentsStmt[ $table ];
 		}
 		
-		private function updateDuplicateCommentCount( $user_id ) {
-			$this->getDuplicateCommentCountStmt->execute( array( $user_id ) );
+		private function updateDuplicateCommentCount( $userID ) {
+			$this->getDuplicateCommentCountStmt->execute( array( $userID ) );
 			$duplicateCommentCount = 0;
 			foreach( $this->getDuplicateCommentCountStmt as $comment ) {
 				$duplicateCommentCount += $comment['duplicates'];
 			}
-			$this->updateDuplicateCommentCountStmt->execute( array( $duplicateCommentCount, $user_id ) );
+			$this->updateDuplicateCommentCountStmt->execute( array( $duplicateCommentCount, $userID ) );
+		}
+		
+		private function updateImageCommentCount( $userID ) {
+			$this->getImageCommentCountStmt->execute( array( $userID ) );
+			$imageCommentCount = $this->getImageCommentCountStmt->fetchColumn( 0 );
+			$this->getImageCommentCountStmt->closeCursor();
+			$this->updateImageCommentCountStmt->execute( array( $imageCommentCount, $userID ) );
 		}
 		
 		private function updateMetaData() {
@@ -328,69 +376,90 @@
 			/* page metadata */
 			// highest fan count
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.fan_count DESC LIMIT 1' );
-			$this->setMetaData( 'pageHighestFanCount', json_encode( $record ), 'Highest Fan Count', 'This is the page with the highest number of fans.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'pageHighestFanCount', json_encode( $record ), 'page', 'Highest Fan Count', 'This is the page with the highest number of fans.' );
 			// most active
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.total_posts DESC LIMIT 1' );
-			$this->setMetaData( 'pageMostActive', json_encode( $record ), 'Most Active', 'This is the page with the highest number of posts.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'pageMostActive', json_encode( $record ), 'page', 'Most Active', 'This is the page with the highest number of posts.' );
 			// most controversial
 			$record = $this->database->fetchRow( 'SELECT pages.* FROM pages WHERE 1 ORDER BY pages.controversiality_score DESC LIMIT 1' );
-			$this->setMetaData( 'pageMostControversial', json_encode( $record ), 'Most Controversial', 'This is the page with the closest number of positive and negative reactions to their posts.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'pageMostControversial', json_encode( $record ), 'page', 'Most Controversial', 'This is the page with the closest number of positive and negative reactions to their posts.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'pages', $reaction ) );
+				$record = $this->decodeDatabaseJSON( $record );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( "pageMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the page with the highest ratio of {$ucReaction} reactions per reaction to their posts. Pages with only one reaction are eliminated." );
+				$this->setMetaData( "pageMost{$ucReaction}Reactions", json_encode( $record ), 'page', "Most {$ucReaction} Reactions", "This is the page with the highest ratio of {$ucReaction} reactions per reaction to their posts. Pages with only one reaction are eliminated." );
 			}
 			
 			/* post metadata */
 			// most active
 			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.total_comments DESC LIMIT 1' );
-			$this->setMetaData( 'postMostActive', json_encode( $record ), 'Most Active', 'This is the post with the highest number of comments.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'postMostActive', json_encode( $record ), 'post', 'Most Active', 'This is the post with the highest number of comments.' );
 			// most controversial
 			$record = $this->database->fetchRow( 'SELECT posts.* FROM posts WHERE 1 ORDER BY posts.controversiality_score DESC LIMIT 1' );
-			$this->setMetaData( 'postMostControversial', json_encode( $record ), 'Most Controversial', 'This is the post with the closest number of positive and negative reactions.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'postMostControversial', json_encode( $record ), 'post', 'Most Controversial', 'This is the post with the closest number of positive and negative reactions.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'posts', $reaction ) );
+				$record = $this->decodeDatabaseJSON( $record );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( "postMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the post with the highest ratio of {$ucReaction} reactions per reaction. Posts with only one reaction are eliminated." );
+				$this->setMetaData( "postMost{$ucReaction}Reactions", json_encode( $record ), 'post', "Most {$ucReaction} Reactions", "This is the post with the highest ratio of {$ucReaction} reactions per reaction. Posts with only one reaction are eliminated." );
 			}
 			
 			/* user metadata */
 			// most active
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments DESC LIMIT 1' );
-			$this->setMetaData( 'userMostActive', json_encode( $record ), 'Most Active', 'This is the user with the highest number of comments.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'userMostActive', json_encode( $record ), 'user', 'Most Active', 'This is the user with the highest number of comments.' );
 			// most influential
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comment_likes DESC LIMIT 1' );
-			$this->setMetaData( 'userMostInfluential', json_encode( $record ), 'Most Influential', 'This is the user with highest total of likes on their comments.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'userMostInfluential', json_encode( $record ), 'user', 'Most Influential', 'This is the user with highest total of likes on their comments.' );
 			// biggest troll
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.total_comments_zero_likes DESC LIMIT 1' );
-			$this->setMetaData( 'userBiggestTroll', json_encode( $record ), 'Biggest Troll', 'This is the user with the highest number of comments with zero likes.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'userBiggestTroll', json_encode( $record ), 'user', 'Biggest Troll', 'This is the user with the highest number of comments with zero likes.' );
 			// biggest spammer
 			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.duplicate_comment_count DESC LIMIT 1' );
-			$this->setMetaData( 'userBiggestSpammer', json_encode( $record ), 'Biggest Spammer', 'This is the user with the highest number of duplicate comments.' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'userBiggestSpammer', json_encode( $record ), 'user', 'Biggest Spammer', 'This is the user with the highest number of duplicate comments.' );
 			// quick draw award
-			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE 1 ORDER BY users.average_hours_to_comment ASC LIMIT 1' );
-			$this->setMetaData( 'userQuickDrawAward', json_encode( $record ), 'Quick Draw Award', 'This is the user with the lowest average number of hours between the time a post is published, and the time they post a comment on it.' );
+			$record = $this->database->fetchRow( 'SELECT users.* FROM users WHERE users.average_hours_to_comment > 0 ORDER BY users.average_hours_to_comment ASC LIMIT 1' );
+			$record = $this->decodeDatabaseJSON( $record );
+			$this->setMetaData( 'userQuickDrawAward', json_encode( $record ), 'user', 'Quick Draw Award', 'This is the user with the lowest average number of hours between the time a post is published, and the time they post a comment on it.' );
 			// most ( reaction type / total reactions )
 			$reactions = array( 'like', 'love', 'wow', 'haha', 'sad', 'angry' );
 			foreach( $reactions as $reaction ) {
 				$record = $this->database->fetchRow( $this->generateMostReactionTypeQuery( 'users', $reaction ) );
+				$record = $this->decodeDatabaseJSON( $record );
 				$ucReaction = ucfirst( $reaction );
-				$this->setMetaData( "userMost{$ucReaction}Reactions", json_encode( $record ), "Most {$ucReaction} Reactions", "This is the user with the highest ratio of {$ucReaction} reactions per reaction. Users with only one reaction are eliminated." );
+				$this->setMetaData( "userMost{$ucReaction}Reactions", json_encode( $record ), 'user', "Most {$ucReaction} Reactions", "This is the user with the highest ratio of {$ucReaction} reactions per reaction. Users with only one reaction are eliminated." );
 			}
 			
 			/* time range */
 			$newEarliestTime = $this->getMetaData( 'newEarliestPostTime' );
-			$this->setMetaData( 'earliestPostTime', $newEarliestTime, 'Earliest Post Time', 'Posts used in the analysis will have been published no earlier than this date.' );
+			$this->setMetaData( 'earliestPostTime', $newEarliestTime );
 			$newLatestTime = $this->getMetaData( 'newLatestPostTime' );
-			$this->setMetaData( 'latestPostTime', $newLatestTime, 'Latest Post Time', 'Posts used in the analysis will have been published no later than this date.' );
+			$this->setMetaData( 'latestPostTime', $newLatestTime );
 		}
 		
 		private function generateMostReactionTypeQuery( $table, $type ) {
 			return "SELECT {$table}.* FROM {$table} WHERE 1 ORDER BY ( CASE WHEN {$table}.total_reactions <= 1 THEN 0 ELSE ( {$table}.total_{$type}_reactions / {$table}.total_reactions ) END ) DESC, {$table}.total_reactions DESC LIMIT 1";
+		}
+		
+		private function decodeDatabaseJSON( $record ) {
+			foreach( $record as $field => $value ) {
+				$object = json_decode( $value );
+				if ( is_object( $object ) ) $record[$field] = $this->decodeDatabaseJSON( $object );
+			}
+			return $record;
 		}
 	}
 ?>
